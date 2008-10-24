@@ -1,5 +1,7 @@
 
-(cl:defpackage #:tiff
+(cl:defpackage #:retrospectiff
   (:use #:cl)
-  (:export))
+  (:nicknames #:tiff)
+  (:export #:read-tiff-stream
+           #:read-tiff-file))
 

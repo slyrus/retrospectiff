@@ -140,6 +140,8 @@
 (defconstant +y-resolution-tag+ 283)
 (defconstant +resolution-unit-tag+ 296)
 
+(defconstant +packbits-compression+ #x8005)
+
 (macrolet ((def-tiff-field-type (type value reader)
              `(progn
                 (defconstant ,(intern (format nil "+field-type-~A+" type)) ,value)
@@ -205,34 +207,39 @@
   (declare (ignore ifd photometric-interpretation))
   (error "Not yet!"))
 
-(defun read-strip (stream
-                   array
-                   start-row
-                   strip-offset
-                   strip-byte-count
-                   width
-                   bits-per-sample
-                   samples-per-pixel
-                   bytes-per-pixel)
+(defun read-rgb-strip (stream
+                       array
+                       start-row
+                       strip-offset
+                       strip-byte-count
+                       width
+                       bits-per-sample
+                       samples-per-pixel
+                       bytes-per-pixel
+                       compression)
   (let ((strip-length (/ strip-byte-count width samples-per-pixel))
         (bytes-per-sample (/ bytes-per-pixel samples-per-pixel)))
     (file-position stream strip-offset)
     (print (cons start-row strip-length))
-    (loop for i from start-row below (+ start-row strip-length)
-       do
-         (let ((rowoff (* i width bytes-per-pixel)))
-           (loop for j below width
-              do 
-                (let ((pixoff (+ rowoff (* bytes-per-pixel j))))
-                  (loop for k below samples-per-pixel
-                     for bits across bits-per-sample
-                     do 
-                       (case bits
-                         (8 
-                          (setf (aref array (+ pixoff (* k bytes-per-sample)))
-                                (read-byte stream)))
-                         (16
-                          (error "Not yet!"))))))))))
+    (ecase compression
+      (1
+       (loop for i from start-row below (+ start-row strip-length)
+          do
+            (let ((rowoff (* i width bytes-per-pixel)))
+              (loop for j below width
+                 do 
+                   (let ((pixoff (+ rowoff (* bytes-per-pixel j))))
+                     (loop for k below samples-per-pixel
+                        for bits across bits-per-sample
+                        do 
+                          (case bits
+                            (8 
+                             (setf (aref array (+ pixoff (* k bytes-per-sample)))
+                                   (read-byte stream)))
+                            (16
+                             (error "Not yet!")))))))))
+      (+packbits-compression+
+       (error "Not yet!")))))
 
 (defun read-rgb-image (stream ifd)
   (let ((image-width (car (get-ifd-values ifd +image-width-tag+)))
@@ -241,22 +248,28 @@
         (bits-per-sample (get-ifd-values ifd +bits-per-sample-tag+))
         (rows-per-strip (car (get-ifd-values ifd +rows-per-strip-tag+)))
         (strip-offsets (get-ifd-values ifd +strip-offsets-tag+))
-        (strip-byte-counts (get-ifd-values ifd +strip-byte-counts-tag+)))
+        (strip-byte-counts (get-ifd-values ifd +strip-byte-counts-tag+))
+        (compression (get-ifd-values ifd +compression-tag+)))
     (let* ((bytes-per-pixel
-            (* samples-per-pixel (1+ (ash (1- (apply #'max (map 'list #'identity bits-per-sample))) -3))))
+            (* samples-per-pixel
+               (1+ (ash (1- (apply #'max
+                                   (map 'list #'identity
+                                        bits-per-sample)))
+                        -3))))
            (image (make-array (* image-width image-length bytes-per-pixel))))
       (loop for strip-offset across strip-offsets
          for strip-byte-count across strip-byte-counts
          for row-offset = 0 then (+ row-offset rows-per-strip)
-         do (read-strip stream
-                        image
-                        row-offset
-                        strip-offset
-                        strip-byte-count
-                        image-width
-                        bits-per-sample
-                        samples-per-pixel
-                        bytes-per-pixel))
+         do (read-rgb-strip stream
+                            image
+                            row-offset
+                            strip-offset
+                            strip-byte-count
+                            image-width
+                            bits-per-sample
+                            samples-per-pixel
+                            bytes-per-pixel
+                            compression))
       (list image-length image-width samples-per-pixel image))))
 
 (defun read-image (stream ifd)
