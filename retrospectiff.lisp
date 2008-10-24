@@ -1,5 +1,34 @@
 
-(in-package :tiff)
+(in-package :retrospectiff)
+
+(defconstant +image-width-tag+ 256)
+(defconstant +image-length-tag+ 257)
+(defconstant +bits-per-sample-tag+ 258)
+(defconstant +compression-tag+ 259)
+(defconstant +photometric-interpretation-tag+ 262)
+(defconstant +strip-offsets-tag+ 273)
+(defconstant +samples-per-pixel-tag+ 277)
+(defconstant +rows-per-strip-tag+ 278)
+(defconstant +rows-per-strip-tag+ 278)
+(defconstant +strip-byte-counts-tag+ 279)
+(defconstant +x-resolution-tag+ 282)
+(defconstant +y-resolution-tag+ 283)
+(defconstant +resolution-unit-tag+ 296)
+
+(defconstant +packbits-compression+ #x8005)
+
+(defconstant +field-type-byte+ 1)
+(defconstant +field-type-ascii+ 2)
+(defconstant +field-type-short+ 3)
+(defconstant +field-type-long+ 4)
+(defconstant +field-type-rational+ 5)
+(defconstant +field-type-sbyte+ 6)
+(defconstant +field-type-undefined+ 7)
+(defconstant +field-type-sshort+ 8)
+(defconstant +field-type-slon+ 9)
+(defconstant +field-type-srationa+ 10)
+(defconstant +field-type-float+ 11)
+(defconstant +field-type-double+ 12)
 
 (defparameter *byte-order* nil)
 
@@ -14,11 +43,24 @@
       ((:big-endian nil) (+ (ash (aref bytes 0) 8) (aref bytes 1)))
       (:little-endian (+ (ash (aref bytes 1) 8) (aref bytes 0))))))
 
+(defun write-int-16 (stream int &key (byte-order *byte-order*))
+  (ecase byte-order
+    ((:big-endian nil)
+     (write-byte (ldb (byte 8 8) int) stream)
+     (write-byte (ldb (byte 8 0) int) stream))
+    (:little-endian
+     (write-byte (ldb (byte 8 0) int) stream)
+     (write-byte (ldb (byte 8 8) int) stream))))
+
 (defun read-int-16-array (stream count)
   (let ((array (make-array count :element-type '(unsigned-byte 16))))
     (loop for i below count
        do (setf (aref array i) (read-int-16 stream)))
     array))
+
+(defun write-int-16-array (stream array)
+  (dotimes (i (length array))
+    (write-int-16 stream (aref array i))))
 
 (defun read-int-32 (stream)
   (let ((bytes (read-bytes stream 4)))
@@ -32,25 +74,39 @@
                          (ash (aref bytes 1) 8)
                          (aref bytes 0))))))
 
+(defun write-int-32 (stream int &key (byte-order *byte-order*))
+  (ecase byte-order
+    ((:big-endian nil)
+     (write-byte (ldb (byte 8 24) int) stream)
+     (write-byte (ldb (byte 8 16) int) stream)
+     (write-byte (ldb (byte 8 8) int) stream)
+     (write-byte (ldb (byte 8 0) int) stream))
+    (:little-endian
+     (write-byte (ldb (byte 8 0) int) stream)
+     (write-byte (ldb (byte 8 8) int) stream)
+     (write-byte (ldb (byte 8 16) int) stream)
+     (write-byte (ldb (byte 8 24) int) stream))))
+
 (defun read-int-32-array (stream count)
   (let ((array (make-array count :element-type '(unsigned-byte 32))))
     (loop for i below count
        do (setf (aref array i) (read-int-32 stream)))
     array))
 
+(defun write-int-32-array (stream array)
+  (dotimes (i (length array))
+    (write-int-32 stream (aref array i))))
+
 (defun read-rational (stream)
   (/ (read-int-32 stream) (read-int-32 stream)))
 
+(defun write-rational (stream)
+  )
 (defun read-rational-array (stream count)
   (let ((array (make-array count :element-type '(unsigned-byte 32))))
     (loop for i below count
        do (setf (aref array i) (read-rational stream)))
     array))
-
-(defvar *tiff-field-types* nil)
-
-(defclass tiff-field ()
-  ((reader :accessor tiff-field-reader :initarg reader)))
 
 (defun read-field-bytes (stream count)
   (if (<= count 4)
@@ -126,39 +182,6 @@
             (read-rational-array stream count)
           (file-position stream field-pos)))))
 
-(defconstant +image-width-tag+ 256)
-(defconstant +image-length-tag+ 257)
-(defconstant +bits-per-sample-tag+ 258)
-(defconstant +compression-tag+ 259)
-(defconstant +photometric-interpretation-tag+ 262)
-(defconstant +strip-offsets-tag+ 273)
-(defconstant +samples-per-pixel-tag+ 277)
-(defconstant +rows-per-strip-tag+ 278)
-(defconstant +rows-per-strip-tag+ 278)
-(defconstant +strip-byte-counts-tag+ 279)
-(defconstant +x-resolution-tag+ 282)
-(defconstant +y-resolution-tag+ 283)
-(defconstant +resolution-unit-tag+ 296)
-
-(defconstant +packbits-compression+ #x8005)
-
-(macrolet ((def-tiff-field-type (type value reader)
-             `(progn
-                (defconstant ,(intern (format nil "+field-type-~A+" type)) ,value)
-                (pushnew (cons ',type ,value) *tiff-field-types* :test 'equal))))
-  (def-tiff-field-type byte 1 'read-field-bytes)
-  (def-tiff-field-type ascii 2 nil)
-  (def-tiff-field-type short 3 read-field-shorts)
-  (def-tiff-field-type long 4 nil)
-  (def-tiff-field-type rational 5 nil)
-  (def-tiff-field-type sbyte 6 nil)
-  (def-tiff-field-type undefined 7 nil)
-  (def-tiff-field-type sshort 8 nil)
-  (def-tiff-field-type slong 9 nil)
-  (def-tiff-field-type srational 10 nil)
-  (def-tiff-field-type float 11 nil)
-  (def-tiff-field-type double 12 nil))
-
 (defun read-ifd-tag-type-and-count (stream)
   (let ((tag (read-int-16 stream))
         (field-type (read-int-16 stream))
@@ -203,8 +226,11 @@
   (let ((field (find key ifd :key 'car :test '=)))
     (ifd-entry-values field)))
 
+(defun get-ifd-value (ifd key)
+  (car (get-ifd-values ifd key)))
+
 (defun read-grayscale-image (stream ifd photometric-interpretation)
-  (declare (ignore ifd photometric-interpretation))
+  (declare (ignore stream ifd photometric-interpretation))
   (error "Not yet!"))
 
 (defun read-rgb-strip (stream
@@ -220,7 +246,6 @@
   (let ((strip-length (/ strip-byte-count width samples-per-pixel))
         (bytes-per-sample (/ bytes-per-pixel samples-per-pixel)))
     (file-position stream strip-offset)
-    (print (cons start-row strip-length))
     (ecase compression
       (1
        (loop for i from start-row below (+ start-row strip-length)
@@ -241,27 +266,33 @@
       (+packbits-compression+
        (error "Not yet!")))))
 
+(defclass tiff-image ()
+  ((length :accessor tiff-image-length :initarg :length)
+   (width :accessor tiff-image-width :initarg :width)
+   (samples-per-pixel :accessor tiff-image-samples-per-pixel :initarg :samples-per-pixel)
+   (data :accessor tiff-image-data :initarg :data)))
+
 (defun read-rgb-image (stream ifd)
-  (let ((image-width (car (get-ifd-values ifd +image-width-tag+)))
-        (image-length (car (get-ifd-values ifd +image-length-tag+)))
-        (samples-per-pixel (car (get-ifd-values ifd +samples-per-pixel-tag+)))
+  (let ((image-width (get-ifd-value ifd +image-width-tag+))
+        (image-length (get-ifd-value ifd +image-length-tag+))
+        (samples-per-pixel (get-ifd-value ifd +samples-per-pixel-tag+))
         (bits-per-sample (get-ifd-values ifd +bits-per-sample-tag+))
-        (rows-per-strip (car (get-ifd-values ifd +rows-per-strip-tag+)))
+        (rows-per-strip (get-ifd-value ifd +rows-per-strip-tag+))
         (strip-offsets (get-ifd-values ifd +strip-offsets-tag+))
         (strip-byte-counts (get-ifd-values ifd +strip-byte-counts-tag+))
-        (compression (get-ifd-values ifd +compression-tag+)))
+        (compression (get-ifd-value ifd +compression-tag+)))
     (let* ((bytes-per-pixel
             (* samples-per-pixel
                (1+ (ash (1- (apply #'max
                                    (map 'list #'identity
                                         bits-per-sample)))
                         -3))))
-           (image (make-array (* image-width image-length bytes-per-pixel))))
+           (data (make-array (* image-width image-length bytes-per-pixel))))
       (loop for strip-offset across strip-offsets
          for strip-byte-count across strip-byte-counts
          for row-offset = 0 then (+ row-offset rows-per-strip)
          do (read-rgb-strip stream
-                            image
+                            data
                             row-offset
                             strip-offset
                             strip-byte-count
@@ -270,7 +301,11 @@
                             samples-per-pixel
                             bytes-per-pixel
                             compression))
-      (list image-length image-width samples-per-pixel image))))
+      (make-instance 'tiff-image
+                     :length image-length
+                     :width image-width
+                     :samples-per-pixel samples-per-pixel
+                     :data data))))
 
 (defun read-image (stream ifd)
   (let ((photometric-interpretation (car (get-ifd-values ifd +photometric-interpretation-tag+))))
