@@ -54,7 +54,7 @@
                          src-pos (- bit-length size)
                          dest-pos (max 0 (- 8 bit-end))))
                   ((= i byte-end)
-                   (setf size (rem8 bit-end)
+                   (setf size (1+ (rem8 (1- bit-end)))
                          dest-pos (- 8 size))
                    (decf src-pos size))
                   (t
@@ -67,7 +67,6 @@
                        (aref array i)))))))
 
 (defun get-bits (array bit-start bit-end)
-  (declare (optimize (debug 2)))
   (let ((bit-length (- bit-end bit-start))
         (byte-start (ash bit-start -3))
         (byte-end (ash (1- bit-end) -3))
@@ -82,7 +81,7 @@
                          int-pos (- bit-length size)
                          array-byte-pos (max 0 (- 8 bit-end))))
                   ((= i byte-end)
-                   (setf size (rem8 bit-end)
+                   (setf size (1+ (rem8 (1- bit-end)))
                          array-byte-pos (- 8 size))
                    (decf int-pos size))
                   (t
