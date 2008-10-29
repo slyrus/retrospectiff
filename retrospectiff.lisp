@@ -16,6 +16,7 @@
 (defconstant +resolution-unit-tag+ 296)
 
 (defconstant +packbits-compression+ #x8005)
+(defconstant +lzw-compression+ 5)
 
 (defconstant +field-type-byte+ 1)
 (defconstant +field-type-ascii+ 2)
@@ -263,6 +264,9 @@
                                    (read-byte stream)))
                             (16
                              (error "Not yet!")))))))))
+      (+lzw-compression+
+       (let ((lzw (read-bytes stream strip-byte-count)))
+         (let ((decoded (lzw-decode lzw))))))
       (+packbits-compression+
        (error "Not yet!")))))
 

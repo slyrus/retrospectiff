@@ -11,4 +11,6 @@
      (:static-file "COPYRIGHT")
      (:static-file "README")
      (:cl-source-file "package")
-     (:cl-source-file "retrospectiff" :depends-on (package))))
+     (:cl-source-file "bit-array" :depends-on (package))
+     (:cl-source-file "lzw" :depends-on (package bit-array))
+     (:cl-source-file "retrospectiff" :depends-on (package lzw))))
