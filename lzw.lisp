@@ -1,11 +1,12 @@
 
 (in-package :retrospectiff)
 
-(defconstant +clear-code+ 256)
-(defconstant +end-of-information-code+ 257)
-(defconstant +first-entry+ 258)
-(defconstant +last-code+ 4093)
-(defconstant +max-code+ 4094)
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (defconstant +clear-code+ 256)
+  (defconstant +end-of-information-code+ 257)
+  (defconstant +first-entry+ 258)
+  (defconstant +last-code+ 4093)
+  (defconstant +max-code+ 4094))
 
 (defun ensure-array-size-and-set-fill-pointer (array fill-pointer)
   (let ((length (array-dimension array 0)))
@@ -16,7 +17,6 @@
     (setf (fill-pointer array) fill-pointer)))
 
 (defun lzw-encode (raw-vector)
-  (declare (optimize (debug 2)))
   (typecase raw-vector
     (string
      (lzw-encode
@@ -50,12 +50,7 @@
                      output new-fill-pointer)
                     (set-bits output bit-count (+ bit-count (code-size))
                               int))
-                  (incf bit-count (code-size))
-                  (when (= int +clear-code+)
-                    (progn
-                      ;; FIXME
-                      ;; do something special here
-                      ))))
+                  (incf bit-count (code-size))))
          (initialize-vector-table)
          (write-code +clear-code+)
          (let ((omega))
@@ -103,7 +98,6 @@
 ;;  } /* end of while loop */ 
 
 (defun lzw-decode-codes (compressed-vector)
-  (declare (optimize (debug 2)))
   (let ((bit-offset 0)
         (code-size +initial-code-size+)
         (next-entry +first-entry+))
@@ -126,7 +120,6 @@
          collect code))))
 
 (defun lzw-decode (compressed-vector &key stream)
-  (declare (optimize (debug 2)))
   (let ((input-bit-offset 0)
         (output-byte-offset 0)
         (code-size +initial-code-size+)

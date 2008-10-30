@@ -1,35 +1,40 @@
 
 (in-package :retrospectiff)
 
-(defconstant +image-width-tag+ 256)
-(defconstant +image-length-tag+ 257)
-(defconstant +bits-per-sample-tag+ 258)
-(defconstant +compression-tag+ 259)
-(defconstant +photometric-interpretation-tag+ 262)
-(defconstant +strip-offsets-tag+ 273)
-(defconstant +samples-per-pixel-tag+ 277)
-(defconstant +rows-per-strip-tag+ 278)
-(defconstant +rows-per-strip-tag+ 278)
-(defconstant +strip-byte-counts-tag+ 279)
-(defconstant +x-resolution-tag+ 282)
-(defconstant +y-resolution-tag+ 283)
-(defconstant +resolution-unit-tag+ 296)
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (defconstant +image-width-tag+ 256)
+  (defconstant +image-length-tag+ 257)
+  (defconstant +bits-per-sample-tag+ 258)
+  (defconstant +compression-tag+ 259)
+  (defconstant +photometric-interpretation-tag+ 262)
+  (defconstant +strip-offsets-tag+ 273)
+  (defconstant +samples-per-pixel-tag+ 277)
+  (defconstant +rows-per-strip-tag+ 278)
+  (defconstant +rows-per-strip-tag+ 278)
+  (defconstant +strip-byte-counts-tag+ 279)
+  (defconstant +x-resolution-tag+ 282)
+  (defconstant +y-resolution-tag+ 283)
+  (defconstant +planar-configuration-tag+ 284)
+  (defconstant +resolution-unit-tag+ 296)
+  (defconstant +predictor-tag+ 317)
+  
+  (defconstant +horizontal-differencing+ 2)
 
-(defconstant +packbits-compression+ #x8005)
-(defconstant +lzw-compression+ 5)
+  (defconstant +packbits-compression+ #x8005)
+  (defconstant +lzw-compression+ 5)
 
-(defconstant +field-type-byte+ 1)
-(defconstant +field-type-ascii+ 2)
-(defconstant +field-type-short+ 3)
-(defconstant +field-type-long+ 4)
-(defconstant +field-type-rational+ 5)
-(defconstant +field-type-sbyte+ 6)
-(defconstant +field-type-undefined+ 7)
-(defconstant +field-type-sshort+ 8)
-(defconstant +field-type-slon+ 9)
-(defconstant +field-type-srationa+ 10)
-(defconstant +field-type-float+ 11)
-(defconstant +field-type-double+ 12)
+  (defconstant +field-type-byte+ 1)
+  (defconstant +field-type-ascii+ 2)
+  (defconstant +field-type-short+ 3)
+  (defconstant +field-type-long+ 4)
+  (defconstant +field-type-rational+ 5)
+  (defconstant +field-type-sbyte+ 6)
+  (defconstant +field-type-undefined+ 7)
+  (defconstant +field-type-sshort+ 8)
+  (defconstant +field-type-slon+ 9)
+  (defconstant +field-type-srationa+ 10)
+  (defconstant +field-type-float+ 11)
+  (defconstant +field-type-double+ 12))
 
 (defparameter *byte-order* nil)
 
@@ -102,7 +107,9 @@
   (/ (read-int-32 stream) (read-int-32 stream)))
 
 (defun write-rational (stream)
-  )
+  (declare (ignore stream))
+  (error "not yet!"))
+
 (defun read-rational-array (stream count)
   (let ((array (make-array count :element-type '(unsigned-byte 32))))
     (loop for i below count
@@ -225,10 +232,12 @@
 
 (defun get-ifd-values (ifd key)
   (let ((field (find key ifd :key 'car :test '=)))
-    (ifd-entry-values field)))
+    (when field
+      (ifd-entry-values field))))
 
 (defun get-ifd-value (ifd key)
-  (car (get-ifd-values ifd key)))
+  (let ((values (get-ifd-values ifd key)))
+    (when values (car values))))
 
 (defun read-grayscale-image (stream ifd photometric-interpretation)
   (declare (ignore stream ifd photometric-interpretation))
@@ -244,31 +253,51 @@
                        samples-per-pixel
                        bytes-per-pixel
                        compression)
-  (let ((strip-length (/ strip-byte-count width samples-per-pixel))
-        (bytes-per-sample (/ bytes-per-pixel samples-per-pixel)))
-    (file-position stream strip-offset)
-    (ecase compression
-      (1
+  (declare (optimize (debug 2)))
+  (file-position stream strip-offset)
+  (ecase compression
+    (1
+     (let ((strip-length (/ strip-byte-count width samples-per-pixel))
+           (bytes-per-sample (/ bytes-per-pixel samples-per-pixel)))
        (loop for i from start-row below (+ start-row strip-length)
           do
-            (let ((rowoff (* i width bytes-per-pixel)))
-              (loop for j below width
-                 do 
+          (let ((rowoff (* i width bytes-per-pixel)))
+            (loop for j below width
+               do 
+               (let ((pixoff (+ rowoff (* bytes-per-pixel j))))
+                 (loop for k below samples-per-pixel
+                    for bits across bits-per-sample
+                    do 
+                    (case bits
+                      (8 
+                       (setf (aref array (+ pixoff (* k bytes-per-sample)))
+                             (read-byte stream)))
+                      (16
+                       (error "Not yet!"))))))))))
+    (#.+lzw-compression+
+     (let ((lzw (read-bytes stream strip-byte-count)))
+       (let ((decoded (lzw-decode lzw))
+             (decoded-offset 0))
+         (let ((strip-length (/ (length decoded) width samples-per-pixel))
+               (bytes-per-sample (/ bytes-per-pixel samples-per-pixel)))
+           (loop for i from start-row below (+ start-row strip-length)
+              do
+              (let ((rowoff (* i width bytes-per-pixel)))
+                (loop for j below width
+                   do 
                    (let ((pixoff (+ rowoff (* bytes-per-pixel j))))
                      (loop for k below samples-per-pixel
                         for bits across bits-per-sample
                         do 
-                          (case bits
-                            (8 
-                             (setf (aref array (+ pixoff (* k bytes-per-sample)))
-                                   (read-byte stream)))
-                            (16
-                             (error "Not yet!")))))))))
-      (+lzw-compression+
-       (let ((lzw (read-bytes stream strip-byte-count)))
-         (let ((decoded (lzw-decode lzw))))))
-      (+packbits-compression+
-       (error "Not yet!")))))
+                        (case bits
+                          (8 
+                           (setf (aref array (+ pixoff (* k bytes-per-sample)))
+                                 (aref decoded decoded-offset))
+                           (incf decoded-offset))
+                          (16
+                           (error "Not yet!"))))))))))))
+    (+packbits-compression+
+     (error "Not yet!"))))
 
 (defclass tiff-image ()
   ((length :accessor tiff-image-length :initarg :length)
@@ -277,6 +306,7 @@
    (data :accessor tiff-image-data :initarg :data)))
 
 (defun read-rgb-image (stream ifd)
+  (declare (optimize (debug 2)))
   (let ((image-width (get-ifd-value ifd +image-width-tag+))
         (image-length (get-ifd-value ifd +image-length-tag+))
         (samples-per-pixel (get-ifd-value ifd +samples-per-pixel-tag+))
@@ -284,7 +314,13 @@
         (rows-per-strip (get-ifd-value ifd +rows-per-strip-tag+))
         (strip-offsets (get-ifd-values ifd +strip-offsets-tag+))
         (strip-byte-counts (get-ifd-values ifd +strip-byte-counts-tag+))
-        (compression (get-ifd-value ifd +compression-tag+)))
+        (compression (get-ifd-value ifd +compression-tag+))
+        (planar-configuration (get-ifd-value ifd +planar-configuration-tag+))
+        (predictor (get-ifd-value ifd +predictor-tag+)))
+    (declare (ignore planar-configuration))
+    ;; FIXME
+    ;; 1. we need to support predictorsfor lzw encoded images.
+    ;; 2. Presumably we'll want planar images as well at some point.
     (let* ((bytes-per-pixel
             (* samples-per-pixel
                (1+ (ash (1- (apply #'max
@@ -305,6 +341,20 @@
                             samples-per-pixel
                             bytes-per-pixel
                             compression))
+      (case predictor
+        (#.+horizontal-differencing+
+         (loop for i below image-length
+            do 
+              (loop for j from 1 below image-width
+                 do 
+                   (let ((offset (+ (* i image-width samples-per-pixel)
+                                    (* samples-per-pixel j))))
+                     (loop for k below samples-per-pixel
+                        do (setf (aref data (+ offset k))
+                                 (logand
+                                  (+ (aref data (+ offset k))
+                                     (aref data (- (+ offset k) samples-per-pixel)))
+                                  #xff))))))))
       (make-instance 'tiff-image
                      :length image-length
                      :width image-width
@@ -312,7 +362,8 @@
                      :data data))))
 
 (defun read-image (stream ifd)
-  (let ((photometric-interpretation (car (get-ifd-values ifd +photometric-interpretation-tag+))))
+  (let ((photometric-interpretation
+         (get-ifd-value ifd +photometric-interpretation-tag+)))
     (ecase photometric-interpretation
       ((0 1) (read-grayscale-image stream ifd photometric-interpretation))
       (2 (read-rgb-image stream ifd)))))
