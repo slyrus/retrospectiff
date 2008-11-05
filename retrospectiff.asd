@@ -14,4 +14,8 @@
      (:cl-source-file "util" :depends-on (package))
      (:cl-source-file "bit-array" :depends-on (package))
      (:cl-source-file "lzw" :depends-on (package bit-array))
-     (:cl-source-file "retrospectiff" :depends-on (package lzw util))))
+     (:cl-source-file "packbits" :depends-on (package bit-array))
+     (:cl-source-file "retrospectiff" :depends-on (package
+                                                   util
+                                                   lzw
+                                                   packbits))))
