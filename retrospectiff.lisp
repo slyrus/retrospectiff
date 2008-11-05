@@ -607,8 +607,7 @@
             (write-int-16 stream (length ifd-entries))
             (incf data-offset (+ 2 (* (length ifd-entries) 12)))
 
-            (setf out-of-line-data-start 
-)
+            (setf out-of-line-data-start data-offset)
             ;; 5. Write the directory entries
             (loop for entry in ifd-entries
                do 
