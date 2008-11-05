@@ -8,14 +8,6 @@
   (defconstant +last-code+ 4093)
   (defconstant +max-code+ 4094))
 
-(defun ensure-array-size-and-set-fill-pointer (array fill-pointer)
-  (let ((length (array-dimension array 0)))
-    (when (>= fill-pointer length)
-      (adjust-array array (max 256
-                               (+ length (ash length -1))
-                               fill-pointer)))
-    (setf (fill-pointer array) fill-pointer)))
-
 (defun lzw-encode (raw-vector)
   (typecase raw-vector
     (string

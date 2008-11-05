@@ -50,3 +50,12 @@
                       :direction :input
                       :element-type '(unsigned-byte 8))
     (vector-contents-of-stream in)))
+
+(defun ensure-array-size-and-set-fill-pointer (array fill-pointer)
+  (let ((length (array-dimension array 0)))
+    (when (>= fill-pointer length)
+      (adjust-array array (max 256
+                               (+ length (ash length -1))
+                               fill-pointer)))
+    (setf (fill-pointer array) fill-pointer)))
+
