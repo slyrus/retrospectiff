@@ -565,7 +565,7 @@
 ;;; 4a. write the number of IFD entries (2 bytes)
 ;;; 
 
-(defun write-tiff-stream (image stream &key (byte-order
+(defun write-tiff-stream (stream image &key (byte-order
                                              (or *byte-order* :big-endian)))
   (with-accessors
         ((image-width tiff-image-width)
@@ -730,13 +730,14 @@
              do (write-data (subseq image-data start
                                     (+ start count)))))))))
 
-(defmacro write-tiff-file (image pathname &rest args)
-  `(with-open-file (stream ,pathname
-                           :direction :output
-                           :element-type :default
-                           ,@args)
-     (write-tiff-stream ,image stream)
-     ,pathname))
+(defmacro write-tiff-file (pathname image &rest args)
+  (let ((stream (gensym "write-tiff-file")))
+    `(with-open-file (,stream ,pathname
+                             :direction :output
+                             :element-type :default
+                             ,@args)
+       (write-tiff-stream ,stream ,image)
+       ,pathname)))
 
 (defparameter *image-info-attributes*
   `((,+image-width-tag+ "Image Width")
