@@ -504,7 +504,7 @@
    (count :accessor ifd-entry-count :initarg :count)
    (values :accessor ifd-entry-values :initarg :values)
    (extra-data :accessor ifd-entry-extra-data :initarg :extra-data)))
-;;;
+
 ;;; To write a TIFF file to a stream we need to make some
 ;;; decisions. If we can randomly seek into the file, then we can
 ;;; start writing as we go, seek to the end, retun back to where we
@@ -567,184 +567,168 @@
 
 (defun write-tiff-stream (image stream &key (byte-order
                                              (or *byte-order* :big-endian)))
-  (declare (optimize (debug 2)))
   (with-accessors
         ((image-width tiff-image-width)
          (image-length tiff-image-length)
-         (samples-per-pixel tiff-image-samples-per-pixel))
+         (samples-per-pixel tiff-image-samples-per-pixel)
+         (image-data tiff-image-data))
       image
-    (let ((*byte-order* byte-order)
-          (stream-offset 0)
-          ifd-entries
-          out-of-line-ifd-entries)
-      (let* (oiv-start
-             oiv-pointer
-             (bytes-per-row (* image-width samples-per-pixel))
-             (rows-per-strip
-              (compute-rows-per-strip image-length bytes-per-row)))
-        (destructuring-bind (strip-offsets strip-byte-counts)
-            (apply #'mapcar #'list
-                   (loop for i below image-length by rows-per-strip
-                      for byte-offset from i by (* rows-per-strip bytes-per-row)
-                      collect (list byte-offset 
-                                    (* bytes-per-row
-                                       (- (min (+ i rows-per-strip) image-length) i)))))
-          (flet ((add-ifd-entry (tag field-type values)
-                   (push (make-instance 'ifd-entry
-                                        :tag tag
-                                        :field-type field-type
-                                        :values values) ifd-entries))
-                 (write-ifd-entry (ifd-entry)
-                   (with-accessors ((tag ifd-entry-tag)
-                                    (field-type ifd-entry-field-type)
-                                    (values ifd-entry-values))
-                       ifd-entry
-                     (write-int-16 stream tag)
-                     (write-int-16 stream field-type)
-                     (let* ((field-count (if (sequencep values)
-                                             (length values)
-                                             1))
-                            (field-size
-                             (* (field-length field-type) field-count)))
-                       (write-int-32 stream field-count)
+    (let* ((*byte-order* byte-order)
+           (stream-offset 0)
+           ifd-entries
+           out-of-line-ifd-entries
+           oiv-pointer
+           (bytes-per-row (* image-width samples-per-pixel))
+           (rows-per-strip
+            (compute-rows-per-strip image-length bytes-per-row)))
+      (destructuring-bind (strip-offsets strip-byte-counts)
+          (apply #'mapcar #'list
+                 (loop for i below image-length by rows-per-strip
+                    for byte-offset from i by (* rows-per-strip
+                                                 bytes-per-row) 
+                    collect (list byte-offset 
+                                  (* bytes-per-row
+                                     (- (min (+ i rows-per-strip)
+                                             image-length) i))))) 
+        (flet ((add-ifd-entry (tag field-type values)
+                 (push (make-instance 'ifd-entry
+                                      :tag tag
+                                      :field-type field-type
+                                      :values values) ifd-entries))
+               (write-ifd-entry (ifd-entry)
+                 (with-accessors ((tag ifd-entry-tag)
+                                  (field-type ifd-entry-field-type)
+                                  (values ifd-entry-values))
+                     ifd-entry
+                   (write-int-16 stream tag)
+                   (write-int-16 stream field-type)
+                   (let* ((field-count (if (sequencep values)
+                                           (length values)
+                                           1))
+                          (field-size (* (field-length field-type)
+                                         field-count)))
+                     (write-int-32 stream field-count)
 
-                       ;; if the tag is strip-offsets, we need to fix up
-                       ;; the location of offsets to point to where the
-                       ;; will actually be, which we only know once we
-                       ;; start writing out the data.
+                     ;; if the tag is strip-offsets, we need to fix up
+                     ;; the location of offsets to point to where the
+                     ;; will actually be, which we only know once we
+                     ;; start writing out the data.
                        
-                       (if (<= field-size 4)
-                           (progn
-                             (cond
-                               ((= field-type +field-type-short+)
-                                (write-int-16-sequence stream values))
-                               ((= field-type +field-type-ascii+)
-                                (error "Can't write inline (<= 4 byte) asciis yet!"))
-                               ((= field-type +field-type-long+)
-                                (write-int-32-sequence stream values)))
-                             (loop for i from field-size below 4
-                                do (write-byte 0 stream)))
-                           (progn
-                             (push ifd-entry out-of-line-ifd-entries)
-                             (write-int-32 stream oiv-pointer)
-                             (incf oiv-pointer field-size)
-                             (when (oddp oiv-pointer)
-                               (incf oiv-pointer)))))))
-                 (write-out-of-line-data (ifd-entry &key data-relative)
-                   (with-accessors ((tag ifd-entry-tag)
-                                    (field-type ifd-entry-field-type)
-                                    (values ifd-entry-values))
-                       ifd-entry
-                     (when data-relative
-                       (setf values
-                             (map 'vector
-                              (lambda (x) (+ x oiv-pointer))
-                              values)))
-                     (cond
-                       ((= field-type +field-type-short+)
-                        (write-int-16-sequence stream values))
-                       ((= field-type +field-type-ascii+)
-                        (error "Can't write inline (<= 4 byte) asciis yet!"))
-                       ((= field-type +field-type-long+)
-                        (write-int-32-sequence stream values))
-                       (t
-                        (error "Not yet!")))
-                     (incf stream-offset (* (field-length field-type)
-                                            (length values)))))
-                 (write-data (vector)
-                   (write-sequence vector stream)
-                   (incf stream-offset (length vector))))
-
-            ;; 1. Write the byte-order bytes (either #x4949 for
-            ;; big-endian, or #4d4d for little-endian).
-            (ecase byte-order
-              (:little-endian (write-int-16 stream #x4949))
-              (:big-endian (write-int-16 stream #x4d4d)))
-            (incf stream-offset 2)
-      
-            ;; 2. Write the magic 16-bit integer 42.
-            (write-int-16 stream 42)
-            (incf stream-offset 2)
-
-            ;; 3. Write the offset of the first directory entry.
-            (write-int-32 stream 8)
-            (incf stream-offset 4)
-
-            ;; 4. Write the first (and only, for the moment) IFD
-            ;; (Image File Directory).
-            ;;
-            ;; 4a. compute and write the number of directory entries.
-            (add-ifd-entry
-             +image-width-tag+ +field-type-long+ image-width)
-            (add-ifd-entry
-             +image-length-tag+ +field-type-long+ image-length)
-
-            ;; now we need RowsPerStrip
-            ;; FIXME! assume 8 bits per sample for the moment!
-            (add-ifd-entry +rows-per-strip-tag+
-                           +field-type-long+
-                           rows-per-strip)
+                     (if (<= field-size 4)
+                         (progn
+                           (cond
+                             ((= field-type +field-type-short+)
+                              (write-int-16-sequence stream values))
+                             ((= field-type +field-type-ascii+)
+                              (error "Can't write inline (<= 4 byte) asciis yet!"))
+                             ((= field-type +field-type-long+)
+                              (write-int-32-sequence stream values)))
+                           (loop for i from field-size below 4
+                              do (write-byte 0 stream)))
+                         (progn
+                           (push ifd-entry out-of-line-ifd-entries)
+                           (write-int-32 stream oiv-pointer)
+                           (incf oiv-pointer field-size)
+                           (when (oddp oiv-pointer)
+                             (incf oiv-pointer)))))))
+               (write-out-of-line-data (ifd-entry &key data-relative)
+                 (with-accessors ((tag ifd-entry-tag)
+                                  (field-type ifd-entry-field-type)
+                                  (values ifd-entry-values))
+                     ifd-entry
+                   (when data-relative
+                     (setf values (map 'vector
+                                       (lambda (x) (+ x oiv-pointer))
+                                       values)))
+                   (cond
+                     ((= field-type +field-type-short+)
+                      (write-int-16-sequence stream values))
+                     ((= field-type +field-type-ascii+)
+                      (error "Can't write inline (<= 4 byte) asciis yet!"))
+                     ((= field-type +field-type-long+)
+                      (write-int-32-sequence stream values))
+                     (t (error "Not yet!")))
+                   (incf stream-offset (* (field-length field-type)
+                                          (length values)))))
+               (write-data (vector)
+                 (write-sequence vector stream)
+                 (incf stream-offset (length vector))))
           
-            ;; FIXME! assume 8 bits per sample for the moment!
-            (add-ifd-entry 
-             +bits-per-sample-tag+ +field-type-short+ '(8 8 8 8))
-
-            (add-ifd-entry 
-             +samples-per-pixel-tag+ +field-type-short+ samples-per-pixel)
-
-            (add-ifd-entry +photometric-interpretation-tag+
-                           +field-type-short+
-                           +photometric-interpretation-rgb+)
-
-            ;; StripByteCounts and StripOffsets
-
-            (add-ifd-entry 
-             +strip-byte-counts-tag+ +field-type-long+ strip-byte-counts)
+          ;; 1. Write the byte-order bytes (either #x4949 for
+          ;; big-endian, or #4d4d for little-endian).
+          (ecase byte-order
+            (:little-endian (write-int-16 stream #x4949))
+            (:big-endian (write-int-16 stream #x4d4d)))
+          (incf stream-offset 2)
           
-            (add-ifd-entry 
-             +strip-offsets-tag+ +field-type-long+ strip-offsets)
+          ;; 2. Write the magic 16-bit integer 42.
+          (write-int-16 stream 42)
+          (incf stream-offset 2)
+          
+          ;; 3. Write the offset of the first directory entry.
+          (write-int-32 stream 8)
+          (incf stream-offset 4)
+
+          ;; 4. Write the first (and only, for the moment) IFD
+          ;; (Image File Directory).
+          ;;
+          ;; 4a. compute and write the number of directory entries.
+          (add-ifd-entry  +image-width-tag+ +field-type-long+ image-width)
+          (add-ifd-entry +image-length-tag+ +field-type-long+ image-length)
             
-            ;; Finally, reverse the ifd-entries list
-            (setf ifd-entries
-                  (sort ifd-entries #'< :key #'ifd-entry-tag))
-
-            (setf oiv-start (+ stream-offset
-                               2 
-                               (* (length ifd-entries) 12)
-                               4)
-                  oiv-pointer oiv-start)
-
-            (write-int-16 stream (length ifd-entries))
-            (incf stream-offset 2)
-
-            ;; 5. Write the directory entries
-            (loop for entry in ifd-entries
-               do 
-                 (write-ifd-entry entry))
-
-            (incf stream-offset (* (length ifd-entries) 12))
-
-            (setf out-of-line-ifd-entries
-                  (nreverse out-of-line-ifd-entries))
-          
-            ;; 6. Write 0 to indicate that there are no more IFDs
-            (write-int-32 stream 0)
-            (incf stream-offset 4)
+          ;; now we need RowsPerStrip
+          ;; FIXME! assume 8 bits per sample for the moment!
+          (add-ifd-entry +rows-per-strip-tag+ +field-type-long+ rows-per-strip)
             
-            ;; 7. Write the data for each out-of-line directory entry
-            (loop for ifd-entry in out-of-line-ifd-entries
-               do 
-               (write-out-of-line-data ifd-entry
-                                       :data-relative 
-                                       (= (ifd-entry-tag ifd-entry)
-                                          +strip-offsets-tag+)))
-            ;; 8. Now write out the strip data
-            (loop for start in strip-offsets
-               for count in strip-byte-counts
-               do
-                 (write-data (subseq (tiff-image-data image)
-                                     start
-                                     (+ start count))))))))))
+          ;; FIXME! assume 8 bits per sample for the moment!
+          (add-ifd-entry +bits-per-sample-tag+ +field-type-short+
+                         (loop for i below samples-per-pixel collect 8))
+            
+          (add-ifd-entry +samples-per-pixel-tag+ +field-type-short+
+                         samples-per-pixel)
+            
+          (add-ifd-entry +photometric-interpretation-tag+
+                         +field-type-short+
+                         +photometric-interpretation-rgb+)
+
+          ;; StripByteCounts and StripOffsets
+          (add-ifd-entry +strip-byte-counts-tag+ +field-type-long+
+                         strip-byte-counts)
+          (add-ifd-entry +strip-offsets-tag+ +field-type-long+
+                         strip-offsets)
+            
+          ;; Finally, reverse the ifd-entries list
+          (setf ifd-entries
+                (sort ifd-entries #'< :key #'ifd-entry-tag))
+
+          (setf oiv-pointer (+ stream-offset 2 (* (length ifd-entries) 12) 4))
+            
+          (write-int-16 stream (length ifd-entries))
+          (incf stream-offset 2)
+
+          ;; 5. Write the directory entries
+          (loop for entry in ifd-entries do (write-ifd-entry entry))
+            
+          (incf stream-offset (* (length ifd-entries) 12))
+
+          (setf out-of-line-ifd-entries
+                (nreverse out-of-line-ifd-entries))
+          
+          ;; 6. Write 0 to indicate that there are no more IFDs
+          (write-int-32 stream 0)
+          (incf stream-offset 4)
+            
+          ;; 7. Write the data for each out-of-line directory entry
+          (loop for ifd-entry in out-of-line-ifd-entries
+             do (write-out-of-line-data ifd-entry
+                                        :data-relative 
+                                        (= (ifd-entry-tag ifd-entry)
+                                           +strip-offsets-tag+)))
+          ;; 8. Now write out the strip data
+          (loop for start in strip-offsets
+             for count in strip-byte-counts
+             do (write-data (subseq image-data start
+                                    (+ start count)))))))))
 
 (defmacro write-tiff-file (image pathname &rest args)
   `(with-open-file (stream ,pathname
