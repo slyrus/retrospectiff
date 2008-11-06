@@ -38,5 +38,9 @@
            #:tiff-image-length
            #:tiff-image-width
            #:tiff-image-samples-per-pixel
-           #:tiff-image-data))
+           #:tiff-image-data
+
+           #:image-width
+           #:image-length
+           #:image-data))
 
