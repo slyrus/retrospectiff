@@ -487,7 +487,7 @@
         (read-image stream ifd)))))
 
 (defun read-tiff-file (pathname)
-  (with-open-file (stream pathname :direction :input :element-type :default)
+  (with-open-file (stream pathname :direction :input :element-type '(unsigned-byte 8))
     (read-tiff-stream stream)))
 
 ;; we should return the number of strips (and possibly the length of
@@ -734,7 +734,7 @@
   (let ((stream (gensym "write-tiff-file")))
     `(with-open-file (,stream ,pathname
                              :direction :output
-                             :element-type :default
+                             :element-type '(unsigned-byte 8)
                              ,@args)
        (write-tiff-stream ,stream ,image)
        ,pathname)))
@@ -788,6 +788,6 @@
       (image-info stream (car ifds)))))
 
 (defun read-tiff-file-info (pathname)
-  (with-open-file (stream pathname :direction :input :element-type :default)
+  (with-open-file (stream pathname :direction :input :element-type '(unsigned-byte 8))
     (read-tiff-stream-info stream)))
 
