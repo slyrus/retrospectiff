@@ -551,12 +551,8 @@
                      :data data))))
 
 (defun read-image (stream ifd)
-  (let ((photometric-interpretation
-         (let ((scalar-or-sequence (get-ifd-value ifd
-                                                  +photometric-interpretation-tag+)))
-           (if (sequencep scalar-or-sequence)
-               (elt scalar-or-sequence 0)
-               scalar-or-sequence))))
+  (let ((photometric-interpretation 
+         (get-ifd-value ifd +photometric-interpretation-tag+)))
     (ecase photometric-interpretation
       ((0 1) (read-grayscale-image stream ifd))
       (2 (read-rgb-image stream ifd)))))
