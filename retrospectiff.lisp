@@ -1003,14 +1003,13 @@
         (write-tiff-grayscale-stream stream image)
         (write-tiff-rgb-stream stream image))))
 
-(defmacro write-tiff-file (pathname image &rest args)
-  (let ((stream (gensym "write-tiff-file")))
-    `(with-open-file (,stream ,pathname
-                              :direction :output
-                              :element-type '(unsigned-byte 8)
-                              ,@args)
-       (write-tiff-stream ,stream ,image)
-       ,pathname)))
+(defun write-tiff-file (pathname image)
+  (with-open-file (stream pathname
+                          :direction :output
+                          :element-type '(unsigned-byte 8)
+                          :if-exists :supersede)
+    (write-tiff-stream stream image)
+    pathname))
 
 (defparameter *image-info-attributes*
   `((,+image-width-tag+ "Image Width")
