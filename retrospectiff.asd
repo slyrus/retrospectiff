@@ -2,13 +2,10 @@
 (asdf:defsystem :retrospectiff
     :name "retrospectiff"
     :author "Cyrus Harmon <ch-lisp@bobobeach.com>"
-    :version #.(with-open-file
-                   (vers (merge-pathnames "version.lisp-expr" *load-truename*))
-                 (read vers))
+    :version "0.0.5"
     :licence "BSD"
     :components
-    ((:static-file "version" :pathname #p"version.lisp-expr")
-     (:static-file "COPYRIGHT")
+    ((:static-file "COPYRIGHT")
      (:static-file "README")
      (:cl-source-file "package")
      (:cl-source-file "util" :depends-on (package))
