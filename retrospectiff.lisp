@@ -30,45 +30,6 @@
 
 (in-package :retrospectiff)
 
-(eval-when (:compile-toplevel :load-toplevel :execute)
-  (defconstant +image-width-tag+ 256)
-  (defconstant +image-length-tag+ 257)
-  (defconstant +bits-per-sample-tag+ 258)
-  (defconstant +compression-tag+ 259)
-  (defconstant +photometric-interpretation-tag+ 262)
-  (defconstant +strip-offsets-tag+ 273)
-  (defconstant +samples-per-pixel-tag+ 277)
-  (defconstant +rows-per-strip-tag+ 278)
-  (defconstant +rows-per-strip-tag+ 278)
-  (defconstant +strip-byte-counts-tag+ 279)
-  (defconstant +x-resolution-tag+ 282)
-  (defconstant +y-resolution-tag+ 283)
-  (defconstant +planar-configuration-tag+ 284)
-  (defconstant +resolution-unit-tag+ 296)
-  (defconstant +predictor-tag+ 317)
-
-  (defconstant +photometric-interpretation-white-is-zero+ 0)
-  (defconstant +photometric-interpretation-black-is-zero+ 1)
-  (defconstant +photometric-interpretation-rgb+ 2)
-
-  (defconstant +horizontal-differencing+ 2)
-
-  (defconstant +packbits-compression+ #x8005)
-  (defconstant +lzw-compression+ 5)
-
-  (defconstant +field-type-byte+ 1)
-  (defconstant +field-type-ascii+ 2)
-  (defconstant +field-type-short+ 3)
-  (defconstant +field-type-long+ 4)
-  (defconstant +field-type-rational+ 5)
-  (defconstant +field-type-sbyte+ 6)
-  (defconstant +field-type-undefined+ 7)
-  (defconstant +field-type-sshort+ 8)
-  (defconstant +field-type-slong+ 9)
-  (defconstant +field-type-srational+ 10)
-  (defconstant +field-type-float+ 11)
-  (defconstant +field-type-double+ 12))
-
 (defun field-length (tag)
   (case tag
     ((#.+field-type-byte+
@@ -340,7 +301,8 @@
    (width :accessor tiff-image-width :initarg :width)
    (bits-per-sample :accessor tiff-image-bits-per-sample :initarg :bits-per-sample)
    (samples-per-pixel :accessor tiff-image-samples-per-pixel :initarg :samples-per-pixel)
-   (data :accessor tiff-image-data :initarg :data)))
+   (data :accessor tiff-image-data :initarg :data)
+   (byte-order :accessor tiff-image-byte-order :initarg :byte-order)))
 
 (defun read-grayscale-strip (stream
                              array
@@ -417,7 +379,8 @@
                      :width image-width
                      :bits-per-sample bits-per-sample
                      :samples-per-pixel 1
-                     :data data))))
+                     :data data
+                     :byte-order *byte-order*))))
 
 (defun read-rgb-strip (stream
                        array
@@ -432,7 +395,7 @@
   (file-position stream strip-offset)
   (ecase compression
     (1
-     (let ((strip-length (/ strip-byte-count width samples-per-pixel))
+     (let ((strip-length (/ strip-byte-count width bytes-per-pixel))
            (bytes-per-sample (/ bytes-per-pixel samples-per-pixel)))
        (loop for i from start-row below (+ start-row strip-length)
           do
@@ -448,7 +411,11 @@
                        (setf (aref array (+ pixoff (* k bytes-per-sample)))
                              (read-byte stream)))
                       (16
-                       (error "Not yet!"))))))))))
+                       ;; FIXME! This assumes big-endian data!!!!
+                       (setf (aref array (+ pixoff (* k bytes-per-sample)))
+                             (read-byte stream)
+                             (aref array (+ 1 pixoff (* k bytes-per-sample)))
+                             (read-byte stream)))))))))))
     (#.+lzw-compression+
      (let ((lzw (read-bytes stream strip-byte-count)))
        (let ((decoded (lzw-decode lzw))
@@ -548,7 +515,8 @@
                      :width image-width
                      :bits-per-sample bits-per-sample
                      :samples-per-pixel samples-per-pixel
-                     :data data))))
+                     :data data
+                     :byte-order *byte-order*))))
 
 (defun read-image (stream ifd)
   (let ((photometric-interpretation 
@@ -649,12 +617,18 @@
 ;;; 4a. write the number of IFD entries (2 bytes)
 ;;; 
 
+;; TODO:
+
+;; 1. bring add-ifd-entry and write-ifd-entry out of line and place up
+;; here as helper functions
+
 (defun write-tiff-grayscale-stream (stream image &key (byte-order
                                                        (or *byte-order* :big-endian)))
   (with-accessors
         ((image-width tiff-image-width)
          (image-length tiff-image-length)
-         (image-data tiff-image-data))
+         (image-data tiff-image-data)
+         (bits-per-sample tiff-image-bits-per-sample))
       image
     (let* ((samples-per-pixel 1)
            (*byte-order* byte-order)
@@ -662,7 +636,8 @@
            ifd-entries
            out-of-line-ifd-entries
            oiv-pointer
-           (bytes-per-row (* image-width samples-per-pixel))
+           (bytes-per-pixel (ash bits-per-sample -3))
+           (bytes-per-row (* image-width bytes-per-pixel))
            (rows-per-strip
             (compute-rows-per-strip image-length bytes-per-row)))
       (destructuring-bind (strip-offsets strip-byte-counts)
@@ -772,6 +747,9 @@
             
           ;; FIXME! assume 8 bits per sample for the moment!
           (add-ifd-entry +bits-per-sample-tag+ +field-type-short+ 8)
+
+          (add-ifd-entry +samples-per-pixel-tag+ +field-type-short+
+                         samples-per-pixel)
             
           (add-ifd-entry +photometric-interpretation-tag+
                          +field-type-short+
@@ -827,14 +805,21 @@
         ((image-width tiff-image-width)
          (image-length tiff-image-length)
          (samples-per-pixel tiff-image-samples-per-pixel)
-         (image-data tiff-image-data))
+         (image-data tiff-image-data)
+         (bits-per-sample tiff-image-bits-per-sample))
       image
     (let* ((*byte-order* byte-order)
            (stream-offset 0)
            ifd-entries
            out-of-line-ifd-entries
            oiv-pointer
-           (bytes-per-row (* image-width samples-per-pixel))
+           (bytes-per-pixel
+            (* samples-per-pixel
+               (1+ (ash (1- (apply #'max
+                                   (map 'list #'identity
+                                        bits-per-sample)))
+                        -3))))
+           (bytes-per-row (* image-width bytes-per-pixel))
            (rows-per-strip
             (compute-rows-per-strip image-length bytes-per-row)))
       (destructuring-bind (strip-offsets strip-byte-counts)
@@ -938,12 +923,10 @@
           (add-ifd-entry +image-length-tag+ +field-type-long+ image-length)
             
           ;; now we need RowsPerStrip
-          ;; FIXME! assume 8 bits per sample for the moment!
           (add-ifd-entry +rows-per-strip-tag+ +field-type-long+ rows-per-strip)
             
-          ;; FIXME! assume 8 bits per sample for the moment!
           (add-ifd-entry +bits-per-sample-tag+ +field-type-short+
-                         (loop for i below samples-per-pixel collect 8))
+                         (map 'list #'identity bits-per-sample))
             
           (add-ifd-entry +samples-per-pixel-tag+ +field-type-short+
                          samples-per-pixel)

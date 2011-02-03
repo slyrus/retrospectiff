@@ -2,20 +2,18 @@
 (asdf:defsystem :retrospectiff
     :name "retrospectiff"
     :author "Cyrus Harmon <ch-lisp@bobobeach.com>"
-    :version #.(with-open-file
-                   (vers (merge-pathnames "version.lisp-expr" *load-truename*))
-                 (read vers))
+    :version "0.1.0"
     :licence "BSD"
+    :serial t
+    :depends-on (com.gigamonkeys.binary-data)
     :components
     ((:static-file "version" :pathname #p"version.lisp-expr")
      (:static-file "COPYRIGHT")
      (:static-file "README")
      (:cl-source-file "package")
-     (:cl-source-file "util" :depends-on (package))
-     (:cl-source-file "bit-array" :depends-on (package))
-     (:cl-source-file "lzw" :depends-on (package bit-array))
-     (:cl-source-file "packbits" :depends-on (package bit-array))
-     (:cl-source-file "retrospectiff" :depends-on (package
-                                                   util
-                                                   lzw
-                                                   packbits))))
+     (:cl-source-file "util")
+     (:cl-source-file "bit-array")
+     (:cl-source-file "lzw")
+     (:cl-source-file "packbits")
+     (:cl-source-file "constants")
+     (:cl-source-file "retrospectiff")))

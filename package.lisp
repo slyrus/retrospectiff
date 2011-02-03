@@ -33,10 +33,15 @@
   (:nicknames #:tiff)
   (:export #:read-tiff-stream
            #:read-tiff-file
-           
+
+           #:write-tiff-stream
+           #:write-tiff-file
+
            #:tiff-image
            #:tiff-image-length
            #:tiff-image-width
            #:tiff-image-samples-per-pixel
-           #:tiff-image-data))
+           #:tiff-image-bits-per-sample
+           #:tiff-image-data
+           #:tiff-image-byte-order))
 
