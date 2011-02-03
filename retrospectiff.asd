@@ -5,6 +5,7 @@
     :version "0.1.0"
     :licence "BSD"
     :serial t
+    :depends-on (com.gigamonkeys.binary-data)
     :components
     ((:static-file "COPYRIGHT")
      (:static-file "README")
@@ -14,4 +15,5 @@
      (:cl-source-file "lzw")
      (:cl-source-file "packbits")
      (:cl-source-file "constants")
-     (:cl-source-file "retrospectiff")))
+     (:cl-source-file "retrospectiff")
+     (:cl-source-file "retrospectiff2")))
