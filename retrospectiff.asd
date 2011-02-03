@@ -7,8 +7,7 @@
     :serial t
     :depends-on (com.gigamonkeys.binary-data)
     :components
-    ((:static-file "version" :pathname #p"version.lisp-expr")
-     (:static-file "COPYRIGHT")
+    ((:static-file "COPYRIGHT")
      (:static-file "README")
      (:cl-source-file "package")
      (:cl-source-file "util")
