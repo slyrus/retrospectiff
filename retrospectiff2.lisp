@@ -107,39 +107,40 @@
 
 (define-binary-type inline-array (type size)
   (:reader (in)
-           (let* ((bytes-per-element (cdr (assoc type *binary-type-sizes*)))
-                  (total-bytes (* bytes-per-element size)))
-             (let ((pad (- (/ 4 bytes-per-element) total-bytes)))
+           (let* ((bytes-per-element (cdr (assoc type *binary-type-sizes*))))
+             (let ((pad (- (/ 4 bytes-per-element) size)))
                (when (minusp pad)
                  (error "tried to read more than 4 bytes inline!"))
                (prog1
                    (map 'vector #'identity
                         (loop for i below size collect (read-value type in)))
-                 (loop for i below pad do (read-value 'type in))))))
+                 (loop for i below pad do (read-value type in))))))
   (:writer (out value)
-           (let* ((bytes-per-element (cdr (assoc type *binary-type-sizes*)))
-                  (total-bytes (* bytes-per-element size)))
-             (let ((pad (- (/ 4 bytes-per-element)
-                           total-bytes)))
+           (let* ((bytes-per-element (cdr (assoc type *binary-type-sizes*))))
+             (let ((pad (- (/ 4 bytes-per-element) size)))
                (when (minusp pad)
                  (error "tried to write more than 4 bytes inline!"))
                (loop for x across value
-                  do (write-value 'type x out))
+                  do (write-value type x out))
                (loop for i below pad
-                  do (write-value 'type 0 out))))))
+                  do (write-value type 0 out))))))
 
-(define-binary-type non-inline-array (type size position result-type)
+(define-binary-type non-inline-array (type size position element-type)
   (:reader (in)
            (let ((cur (file-position in)))
              (file-position in position)
-             (prog1 (map (or result-type 'vector) #'identity
-                         (loop for i below size collect (read-value type in)))
+             (prog1 
+                 (let ((v (apply #'make-array size
+                                 (when element-type `(:element-type ,element-type)))))
+                   (loop for i below size
+                      do (setf (elt v i) (read-value type in)))
+                   v)
                (file-position in cur))))
   (:writer (out value)
            (let ((cur (file-position out)))
              (file-position out position)
              (loop for x across value
-                do (write-value 'type x out))
+                do (write-value type x out))
              (file-position out cur))))
 ;;
 ;; 1 - BYTE
@@ -151,48 +152,20 @@
 
 ;; 2 - ASCII
 (define-binary-class inline-ascii-ifd-entry (ifd-entry)
-  ((data (inline-array :type 'iso-8859-1-char :size value-count))))
+  ((data (inline-array :type 'iso-8859-1-char :size value-count
+                       :element-type 'character))))
 
 (define-binary-class non-inline-ascii-ifd-entry (non-inline-ifd-entry)
   ((data (non-inline-array :type 'iso-8859-1-char :size value-count
-                           :position offset :result-type 'string))))
+                           :position offset :element-type 'character))))
 
 ;;
 ;; 3
-(define-binary-type inline-shorts (size)
-  (:reader (in)
-           (let ((pad (- 2 size)))
-             (when (minusp pad)
-               (error "tried to read more than 2 shorts inline!"))
-             (prog1
-                 (map 'vector #'identity (loop for i below size collect (read-value 'u2* in)))
-               (loop for i below pad do (read-value 'u2* in)))))
-  (:writer (out value)
-           (let ((pad (- 2 size)))
-             (when (minusp pad)
-               (error "tried to write more than 2 shorts inline!"))
-             (loop for char across value
-                do (write-value 'u2* char out))
-             (loop for i below pad
-                do (write-value 'u2* 0 out)))))
-
 (define-binary-class inline-short-ifd-entry (ifd-entry)
-  ((data (inline-shorts :size value-count))))
-
-(define-binary-type non-inline-shorts (position size)
-  (:reader (in)
-           (let ((cur (file-position in)))
-             (file-position in position)
-             (prog1 (map 'vector #'identity (loop for i below size collect (read-value 'u2* in)))
-               (file-position in cur))))
-  (:writer (out value)
-           (let ((cur (file-position out)))
-             (file-position out position)
-             (loop for x across value do (write-value 'u2* out x))
-             (file-position out cur))))
+  ((data (inline-array :type 'u2 :size value-count))))
 
 (define-binary-class non-inline-short-ifd-entry (non-inline-ifd-entry)
-  ((data (non-inline-shorts :position offset :size value-count))))
+  ((data (non-inline-array :type 'u2 :size value-count :position offset))))
 
 
 ;; 4
