@@ -63,11 +63,174 @@
              (:big-endian
               (write-value 'u2 out #x4d4d)))))
 
-(define-binary-class ifd-entry ()
+(define-tagged-binary-class ifd-entry ()
   ((tag u2*)
    (field-type u2*)
-   (value-count u4*)
-   (value-offset u4*)))
+   (value-count u4*))
+  (:dispatch (case field-type
+               (1 (if (<= value-count 4)
+                      'inline-byte-ifd-entry
+                      'non-inline-byte-ifd-entry))
+               (2 (if (<= value-count 4)
+                      'inline-ascii-ifd-entry
+                      'non-inline-ascii-ifd-entry))
+               (3 (if (<= value-count 2)
+                      'inline-short-ifd-entry
+                      'non-inline-short-ifd-entry))
+               #+nil
+               (progn (2 'ascii-ifd-entry)
+                      (3 'short-ifd-entry)
+                      (4 'long-ifd-entry)
+                      (5 'rational-ifd-entry)
+                      (6 'sbyte-ifd-entry)
+                      (7 'undefined-ifd-entry)
+                      (8 'sshort-ifd-entry)
+                      (9 'slong-ifd-entry)
+                      (10 'srational-ifd-entry)
+                      (11 'float-ifd-entry)
+                      (12 'double-ifd-entry))
+               (t 'unknown-ifd-entry))))
+
+(define-binary-class unknown-ifd-entry (ifd-entry)
+  ((value-offset u4*)))
+
+(define-binary-class inline-ifd-entry (ifd-entry) ())
+
+(define-binary-class non-inline-ifd-entry (ifd-entry)
+  ((offset u4*)))
+
+(defparameter *binary-type-sizes*
+  `((iso-8859-1-char . 1)
+    (u1 . 1)
+    (u2 . 2)
+    (u4 . 4)))
+
+(define-binary-type inline-array (type size)
+  (:reader (in)
+           (let* ((bytes-per-element (cdr (assoc type *binary-type-sizes*)))
+                  (total-bytes (* bytes-per-element size)))
+             (let ((pad (- (/ 4 bytes-per-element) total-bytes)))
+               (when (minusp pad)
+                 (error "tried to read more than 4 bytes inline!"))
+               (prog1
+                   (map 'vector #'identity
+                        (loop for i below size collect (read-value type in)))
+                 (loop for i below pad do (read-value 'type in))))))
+  (:writer (out value)
+           (let* ((bytes-per-element (cdr (assoc type *binary-type-sizes*)))
+                  (total-bytes (* bytes-per-element size)))
+             (let ((pad (- (/ 4 bytes-per-element)
+                           total-bytes)))
+               (when (minusp pad)
+                 (error "tried to write more than 4 bytes inline!"))
+               (loop for x across value
+                  do (write-value 'type x out))
+               (loop for i below pad
+                  do (write-value 'type 0 out))))))
+
+(define-binary-type non-inline-array (type size position result-type)
+  (:reader (in)
+           (let ((cur (file-position in)))
+             (file-position in position)
+             (prog1 (map (or result-type 'vector) #'identity
+                         (loop for i below size collect (read-value type in)))
+               (file-position in cur))))
+  (:writer (out value)
+           (let ((cur (file-position out)))
+             (file-position out position)
+             (loop for x across value
+                do (write-value 'type x out))
+             (file-position out cur))))
+;;
+;; 1 - BYTE
+(define-binary-class inline-byte-ifd-entry (ifd-entry)
+  ((data (inline-array :type 'u1 :size value-count))))
+
+(define-binary-class non-inline-byte-ifd-entry (non-inline-ifd-entry)
+  ((data (non-inline-array :type 'u1 :size value-count :position offset))))
+
+;; 2 - ASCII
+(define-binary-class inline-ascii-ifd-entry (ifd-entry)
+  ((data (inline-array :type 'iso-8859-1-char :size value-count))))
+
+(define-binary-class non-inline-ascii-ifd-entry (non-inline-ifd-entry)
+  ((data (non-inline-array :type 'iso-8859-1-char :size value-count
+                           :position offset :result-type 'string))))
+
+;;
+;; 3
+(define-binary-type inline-shorts (size)
+  (:reader (in)
+           (let ((pad (- 2 size)))
+             (when (minusp pad)
+               (error "tried to read more than 2 shorts inline!"))
+             (prog1
+                 (map 'vector #'identity (loop for i below size collect (read-value 'u2* in)))
+               (loop for i below pad do (read-value 'u2* in)))))
+  (:writer (out value)
+           (let ((pad (- 2 size)))
+             (when (minusp pad)
+               (error "tried to write more than 2 shorts inline!"))
+             (loop for char across value
+                do (write-value 'u2* char out))
+             (loop for i below pad
+                do (write-value 'u2* 0 out)))))
+
+(define-binary-class inline-short-ifd-entry (ifd-entry)
+  ((data (inline-shorts :size value-count))))
+
+(define-binary-type non-inline-shorts (position size)
+  (:reader (in)
+           (let ((cur (file-position in)))
+             (file-position in position)
+             (prog1 (map 'vector #'identity (loop for i below size collect (read-value 'u2* in)))
+               (file-position in cur))))
+  (:writer (out value)
+           (let ((cur (file-position out)))
+             (file-position out position)
+             (loop for x across value do (write-value 'u2* out x))
+             (file-position out cur))))
+
+(define-binary-class non-inline-short-ifd-entry (non-inline-ifd-entry)
+  ((data (non-inline-shorts :position offset :size value-count))))
+
+
+;; 4
+(define-binary-class inline-long-ifd-entry (ifd-entry)
+  ((value-offset u4*)))
+
+;; 5
+(define-binary-class inline-rational-ifd-entry (ifd-entry)
+  ((value-offset u4*)))
+
+;; 6
+(define-binary-class inline-sbyte-ifd-entry (ifd-entry)
+  ((value-offset u4*)))
+
+;; 7
+(define-binary-class inline-undefined-ifd-entry (ifd-entry)
+  ((value-offset u4*)))
+
+;; 8
+(define-binary-class inline-sshort-ifd-entry (ifd-entry)
+  ((value-offset u4*)))
+
+;; 9
+(define-binary-class inline-slong-ifd-entry (ifd-entry)
+  ((value-offset u4*)))
+
+;; 10
+(define-binary-class inline-srational-ifd-entry (ifd-entry)
+  ((value-offset u4*)))
+
+;; 11
+(define-binary-class inline-float-ifd-entry (ifd-entry)
+  ((value-offset u4*)))
+
+;; 12
+(define-binary-class inline-double-ifd-entry (ifd-entry)
+  ((value-offset u4*)))
+
 
 (define-binary-type tiff-ifd-offset ()
   (:reader (in)
