@@ -1,7 +1,7 @@
 ;;; file: retrospectiff.lisp
 ;;; author: cyrus harmon
 ;;;
-;;; Copyright (c) 2008 Cyrus Harmon (ch-lisp@bobobeach.com)
+;;; Copyright (c) 2008-2011 Cyrus Harmon (ch-lisp@bobobeach.com)
 ;;; All rights reserved.
 ;;;
 ;;; Redistribution and use in source and binary forms, with or without
@@ -30,271 +30,282 @@
 
 (in-package :retrospectiff)
 
-(defun field-length (tag)
-  (case tag
-    ((#.+field-type-byte+
-      #.+field-type-ascii+
-      #.+field-type-sbyte+)
-     1)
-    ((#.+field-type-short+
-      #.+field-type-sshort+)
-     2)
-    ((#.+field-type-long+
-      #.+field-type-slong+
-      #.+field-type-float+)
-     4)
-    ((#.+field-type-rational+
-      #.+field-type-srational+
-      #.+field-type-double+)
-     8)))
-
 (defparameter *byte-order* nil)
 
-(defun vectorize (sequence)
-  (if (vectorp sequence)
-      sequence
-      (map 'vector #'identity sequence)))
+;;; Perhaps the next few types should be moved to a
+;;; binary-data-extensions file or some such?
 
-(defun listize (sequence)
-  (if (listp sequence)
-      sequence
-      (map 'list #'identity sequence)))
+(define-binary-type array (type size)
+  (:reader (in)
+           (let ((arr (make-array size :element-type type)))
+             (dotimes (i size)
+               (setf (elt arr i)
+                     (read-value type in)))
+             arr))
+  (:writer (out value)
+           (dotimes (i (length value))
+             (write-value type out (elt value i)))))
 
-(defun ensure-list (value-or-list)
-  (if (listp value-or-list)
-      value-or-list
-      (list value-or-list)))
+(define-binary-type unsigned-integer* (bytes bits-per-byte)
+  (:reader (in)
+           (case *byte-order*
+             (:big-endian
+              (loop with value = 0
+                 for low-bit downfrom (* bits-per-byte (1- bytes)) to 0 by bits-per-byte do
+                 (setf (ldb (byte bits-per-byte low-bit) value) (read-byte in))
+                 finally (return value)))
+             (:little-endian
+              (loop with value = 0
+                 for low-bit to (* bits-per-byte (1- bytes)) by bits-per-byte do
+                 (setf (ldb (byte bits-per-byte low-bit) value) (read-byte in))
+                 finally (return value)))))
+  (:writer (out value)
+           (case *byte-order*
+             (:big-endian
+              (loop for low-bit downfrom (* bits-per-byte (1- bytes)) to 0 by bits-per-byte
+                 do (write-byte (ldb (byte bits-per-byte low-bit) value) out)))
+             (:little-endian
+              (loop for low-bit to  (* bits-per-byte (1- bytes)) by bits-per-byte
+                 do (write-byte (ldb (byte bits-per-byte low-bit) value) out))))))
 
-(defun ensure-vector (value-or-vector)
-  (if (vectorp value-or-vector)
-      value-or-vector
-      (vector value-or-vector)))
+(define-binary-type u2* () (unsigned-integer* :bytes 2 :bits-per-byte 8))
+(define-binary-type u4* () (unsigned-integer* :bytes 4 :bits-per-byte 8))
+(define-binary-type u8* () (unsigned-integer* :bytes 8 :bits-per-byte 8))
 
-(defun sequencep (x)
-  (typep x 'sequence))
+(defun convert-to-signed-integer (num bits)
+  (let ((max (1- (ash 1 (1- bits)))))
+    (if (> num max)
+        (lognot (- (1- (ash 1 bits)) num))
+        num)))
 
-(defun read-bytes (stream count)
-  (let ((buf (make-array count :element-type '(unsigned-byte 8))))
-    (read-sequence buf stream)
-    buf))
+(defun convert-to-unsigned-integer (num bits)
+  (if (minusp num)
+      (+ (ash 1 bits) num)
+      num))
 
-(defun read-signed-bytes (stream count)
-  (let ((buf (make-array count :element-type '(signed-byte 8))))
-    (read-sequence buf stream)
-    buf))
+(define-binary-type signed-integer* (bytes bits-per-byte)
+  (:reader (in)
+           (convert-to-signed-integer
+            (case *byte-order*
+              (:big-endian
+               (loop with value = 0
+                  for low-bit downfrom (* bits-per-byte (1- bytes)) to 0 by bits-per-byte do
+                    (setf (ldb (byte bits-per-byte low-bit) value) (read-byte in))
+                  finally (return value)))
+              (:little-endian
+               (loop with value = 0
+                  for low-bit to (* bits-per-byte (1- bytes)) by bits-per-byte do
+                    (setf (ldb (byte bits-per-byte low-bit) value) (read-byte in))
+                  finally (return value))))
+            (* bytes bits-per-byte)))
+  (:writer (out value)
+           (let ((value (convert-to-unsigned-integer value (* bytes bits-per-byte))))
+             (case *byte-order*
+               (:big-endian
+                (loop for low-bit downfrom (* bits-per-byte (1- bytes)) to 0 by bits-per-byte
+                   do (write-byte (ldb (byte bits-per-byte low-bit) value) out)))
+               (:little-endian
+                (loop for low-bit to  (* bits-per-byte (1- bytes)) by bits-per-byte
+                   do (write-byte (ldb (byte bits-per-byte low-bit) value) out)))))))
 
-(defun read-int-16 (stream &key (byte-order *byte-order*))
-  (let ((bytes (read-bytes stream 2)))
-    (ecase byte-order
-      ((:big-endian nil) (+ (ash (aref bytes 0) 8) (aref bytes 1)))
-      (:little-endian (+ (ash (aref bytes 1) 8) (aref bytes 0))))))
+(define-binary-type s1* () (signed-integer* :bytes 1 :bits-per-byte 8))
+(define-binary-type s2* () (signed-integer* :bytes 2 :bits-per-byte 8))
+(define-binary-type s4* () (signed-integer* :bytes 4 :bits-per-byte 8))
 
-(defun write-int-16 (stream int &key (byte-order *byte-order*))
-  (ecase byte-order
-    ((:big-endian nil)
-     (write-byte (ldb (byte 8 8) int) stream)
-     (write-byte (ldb (byte 8 0) int) stream))
-    (:little-endian
-     (write-byte (ldb (byte 8 0) int) stream)
-     (write-byte (ldb (byte 8 8) int) stream))))
+(define-binary-type f4* ()
+  (:reader (in)
+           (ieee-floats:decode-float32 (read-value 'u4* in)))
+  (:writer (out value)
+           (write-value 'u4* out (ieee-floats:encode-float32 value))))
 
-(defun read-int-16-array (stream count)
-  (let ((array (make-array count :element-type '(unsigned-byte 16))))
-    (loop for i below count
-       do (setf (aref array i) (read-int-16 stream)))
-    array))
+(define-binary-type f8* ()
+  (:reader (in)
+           (ieee-floats:decode-float64 (read-value 'u8* in)))
+  (:writer (out value)
+           (write-value'u8* out (ieee-floats:encode-float64 value))))
 
-(defun write-int-16-array (stream array)
-  (dotimes (i (length array))
-    (write-int-16 stream (aref array i))))
+;;; end binary-data-extensions section
+;;;
 
-(defun write-int-16-sequence (stream values)
-  (if (sequencep values)
-      (write-int-16-array stream (vectorize values))
-      (write-int-16 stream values)))
+(define-binary-type tiff-byte-order ()
+  (:reader (in)
+           (let ((val (read-value 'u2 in)))
+             (case val
+               (#x4949 (setf *byte-order* :little-endian))
+               (#x4D4D (setf *byte-order* :big-endian))
+               (t (error "unknown byte order")))))
+  (:writer (out value)
+           (case (or *byte-order* value)
+             (:little-endian
+              (write-value 'u2 out #x4949))
+             (:big-endian
+              (write-value 'u2 out #x4d4d)))))
 
-(defun read-int-32 (stream)
-  (let ((bytes (read-bytes stream 4)))
-    (ecase *byte-order*
-      ((:big-endian nil) (+ (ash (aref bytes 0) 24)
-                            (ash (aref bytes 1) 16)
-                            (ash (aref bytes 2) 8)
-                            (aref bytes 3)))
-      (:little-endian (+ (ash (aref bytes 3) 24)
-                         (ash (aref bytes 2) 16)
-                         (ash (aref bytes 1) 8)
-                         (aref bytes 0))))))
+(define-tagged-binary-class ifd-entry ()
+  ((tag u2*)
+   (field-type u2*)
+   (value-count u4*))
+  (:dispatch (case field-type
+               (1 'byte-ifd-entry)
+               (2 'ascii-ifd-entry)
+               (3 'short-ifd-entry)
+               (4 'long-ifd-entry)
+               (5 'rational-ifd-entry)
+               (6 'sbyte-ifd-entry)
+               (8 'sshort-ifd-entry)
+               (9 'slong-ifd-entry)
+               (10 'srational-ifd-entry)
+               (11 'float-ifd-entry)
+               (12 'double-ifd-entry)
+               (t 'unknown-ifd-entry))))
 
-(defun write-int-32 (stream int &key (byte-order *byte-order*))
-  (ecase byte-order
-    ((:big-endian nil)
-     (write-byte (ldb (byte 8 24) int) stream)
-     (write-byte (ldb (byte 8 16) int) stream)
-     (write-byte (ldb (byte 8 8) int) stream)
-     (write-byte (ldb (byte 8 0) int) stream))
-    (:little-endian
-     (write-byte (ldb (byte 8 0) int) stream)
-     (write-byte (ldb (byte 8 8) int) stream)
-     (write-byte (ldb (byte 8 16) int) stream)
-     (write-byte (ldb (byte 8 24) int) stream))))
+(define-binary-class unknown-ifd-entry (ifd-entry)
+  ((value-offset u4*)))
 
-(defun read-int-32-array (stream count)
-  (let ((array (make-array count :element-type '(unsigned-byte 32))))
-    (loop for i below count
-       do (setf (aref array i) (read-int-32 stream)))
-    array))
+(defparameter *binary-type-sizes*
+  `((iso-8859-1-char . 1)
+    (u1 . 1)
+    (u2 . 2)
+    (u4 . 4)
+    (u2* . 2)
+    (u4* . 4)
+    (s1* . 1)
+    (s2* . 2)
+    (s4* . 4)
+    (rational . 8)
+    (srational . 8)
+    (f4* . 4)
+    (f8* . 8)))
 
-(defun write-int-32-array (stream array)
-  (dotimes (i (length array))
-    (write-int-32 stream (aref array i))))
+(define-binary-type ifd-array (type size element-type)
+  (:reader (in)
+           (let* ((bytes-per-element (cdr (assoc type *binary-type-sizes*))))
+             (let ((pad (- (/ 4 bytes-per-element) size))
+                   (v (apply #'make-array size
+                             (when element-type `(:element-type ,element-type)))))
+               (if (minusp pad)
+                   (let ((position (read-value 'u4* in))
+                         (cur (file-position in)))
+                     (file-position in position)
+                     (loop for i below size
+                        do (setf (elt v i) (read-value type in)))
+                     (file-position in cur))
+                   (progn
+                     (loop for i below size
+                        do (setf (elt v i) (read-value type in)))
+                     (loop for i below pad do (read-value type in))))
+               v)))
+  (:writer (out value)
+           (let* ((bytes-per-element (cdr (assoc type *binary-type-sizes*))))
+             (let ((pad (- (/ 4 bytes-per-element) size)))
+               (if (minusp pad)
+                   (let ((position 0)
+                         (cur (file-position out)))
+                     (declare (ignore position cur))
+                     (error "this is broken until we figure out how to compute position!")
+                     #+nil
+                     (progn (file-position out position)
+                            (loop for x across value
+                               do (write-value type x out))
+                            (file-position out cur)))
+                   (progn (loop for x across value
+                             do (write-value type x out))
+                          (loop for i below pad
+                             do (write-value type 0 out))))))))
 
-(defun write-int-32-sequence (stream values)
-  (if (sequencep values)
-      (write-int-32-array stream (vectorize values))
-      (write-int-32 stream values)))
+;; 1 - byte
+(define-binary-class byte-ifd-entry (ifd-entry)
+  ((data (ifd-array :type 'u1 :size value-count))))
 
-(defun read-rational (stream)
-  (/ (read-int-32 stream) (read-int-32 stream)))
+;; 2 - ascii
+(define-binary-class ascii-ifd-entry (ifd-entry)
+  ((data (ifd-array :type 'iso-8859-1-char :size value-count :element-type 'character))))
 
-(defun write-rational (stream)
-  (declare (ignore stream))
-  (error "not yet!"))
+;; 3 -- short
+(define-binary-class short-ifd-entry (ifd-entry)
+  ((data (ifd-array :type 'u2* :size value-count))))
 
-(defun read-rational-array (stream count)
-  (let ((array (make-array count :element-type '(unsigned-byte 32))))
-    (loop for i below count
-       do (setf (aref array i) (read-rational stream)))
-    array))
+;; 4 -- long
+(define-binary-class long-ifd-entry (ifd-entry)
+  ((data (ifd-array :type 'u4* :size value-count))))
 
-(defun read-field-bytes (stream count)
-  (if (<= count 4)
-      (vectorize
-       (loop for i below 4
-          for byte = (read-byte stream)
-          when (< i count)
-          collect byte))
-      (let ((offset (read-int-32 stream))
-            (field-pos (file-position stream)))
-        (file-position stream offset)
-        (prog1
-            (read-bytes stream count)
-          (file-position stream field-pos)))))
+;; 5 -- rational
+(define-binary-class rational ()
+  ((numerator u4*)
+   (denominator u4*)))
 
-(defun split-strings (char-list)
-  (let ((strings))
-    (cond ((listp char-list)
-           (loop for char in char-list with string
-              do
-                (if (zerop char)
-                    (push (coerce (nreverse string) 'string) strings)
-                    (push (code-char char) string))))
-          ((vectorp char-list)
-           (loop for char across char-list with string
-              do
-                (if (zerop char)
-                    (push (coerce (nreverse string) 'string) strings)
-                    (push (code-char char) string)))))
-    strings))
+(define-binary-class rational-ifd-entry (ifd-entry)
+  ((data (ifd-array :type 'rational :size value-count))))
 
-(defun read-field-asciis (stream count)
-  (if (<= count 4)
-      (let ((strs (loop for i below 4
-                     for byte = (read-byte stream)
-                     when (< i count)
-                     collect byte)))
-        (split-strings strs))
-      (let ((offset (read-int-32 stream))
-            (field-pos (file-position stream)))
-        (file-position stream offset)
-        (prog1
-            (split-strings (read-bytes stream count))
-          (file-position stream field-pos)))))
+;; 6 -- signed byte
+(define-binary-class sbyte-ifd-entry (ifd-entry)
+  ((data (ifd-array :type 's1* :size value-count))))
 
-(defun read-field-shorts (stream count)
-  (case count
-    (1 (prog1
-           (vector (read-int-16 stream))
-         (read-int-16 stream)))
-    (2 (vectorize
-           (loop for i below 2
-              for short = (read-int-16 stream)
-              when (< i count)
-              collect short)))
-    (t (let ((offset (read-int-32 stream))
-             (field-pos (file-position stream)))
-         (file-position stream offset)
-         (prog1
-             (read-int-16-array stream count)
-           (file-position stream field-pos))))))
+;; 7 -- undefined (and unused, at least for now)
+#+nil
+(define-binary-class undefined-ifd-entry (ifd-entry)
+  ((value-offset u4*)))
 
-(defun read-field-longs (stream count)
-  (let ((value-or-offset (read-int-32 stream)))
-    (if (<= count 1)
-        value-or-offset
-        (let ((field-pos (file-position stream)))
-          (file-position stream value-or-offset)
-          (prog1
-              (read-int-32-array stream count)
-            (file-position stream field-pos))))))
+;; 8 -- signed short
+(define-binary-class sshort-ifd-entry (ifd-entry)
+  ((data (ifd-array :type 's2* :size value-count))))
 
-(defun read-field-rationals (stream count)
-    (let ((offset (read-int-32 stream)))
-      (let ((field-pos (file-position stream)))
-        (file-position stream offset)
-        (prog1
-            (read-rational-array stream count)
-          (file-position stream field-pos)))))
+;; 9 -- signed long
+(define-binary-class slong-ifd-entry (ifd-entry)
+  ((data (ifd-array :type 's4* :size value-count))))
 
-(defun read-ifd-tag-type-and-count (stream)
-  (let ((tag (read-int-16 stream))
-        (field-type (read-int-16 stream))
-        (value-count (read-int-32 stream)))
-    (list tag field-type value-count)))
+;; 10 -- signed rational
+(define-binary-class srational ()
+  ((numerator s4*)
+   (denominator s4*)))
 
-(defun read-ifd-entry (stream)
-  (let ((tag-type-and-count (read-ifd-tag-type-and-count stream)))
-    (destructuring-bind (tag field-type value-count)
-        tag-type-and-count
-      (list tag field-type value-count
-            (cond ((= field-type +field-type-short+)
-                   (read-field-shorts stream value-count))
-                  ((= field-type +field-type-ascii+)
-                   (read-field-asciis stream value-count))
-                  ((= field-type +field-type-long+)
-                   (read-field-longs stream value-count))
-                  ((= field-type +field-type-rational+)
-                   (read-field-rationals stream value-count))
-                  ((= field-type +field-type-undefined+)
-                   (read-field-bytes stream value-count))
-                  (t (let ((value-offset (read-int-32 stream)))
-                       value-offset)))))))
+(define-binary-class srational-ifd-entry (ifd-entry)
+  ((data (ifd-array :type 'srational :size value-count))))
 
-(defun get-ifd-entry-values (ifd-entry)
-  (elt ifd-entry 3))
+;; 11
+(define-binary-class float-ifd-entry (ifd-entry)
+  ((data (ifd-array :type 'f4* :size value-count))))
 
-(defun read-ifd (stream)
-  (let ((ifd-count (read-int-16 stream)))
-    (loop for i below ifd-count
-       collect (read-ifd-entry stream))))
+;; 12
+(define-binary-class double-ifd-entry (ifd-entry)
+  ((data (ifd-array :type 'f8* :size value-count))))
 
-(defun read-ifds (stream)
-  (loop for ifd = (read-int-32 stream)
-     while (not (zerop ifd))
-     collect
-       (progn
-         (file-position stream ifd)
-         (read-ifd stream))))
 
-(defun get-ifd-values (ifd key)
-  (let ((field (find key ifd :key 'car :test '=)))
-    (when field
-      (get-ifd-entry-values field))))
+(define-binary-type tiff-ifd-offset ()
+  (:reader (in)
+           (let ((val (read-value 'u4* in)))
+             (prog1 val
+               (if (plusp val)
+                   (file-position in val)))))
+  (:writer (out value)
+           (write-value 'u4* out value)
+           (if (plusp value)
+               (file-position out value))))
 
-(defun get-ifd-value (ifd key)
-  (let ((values (get-ifd-values ifd key)))
-    (typecase values
-      (list (car values))
-      (array (elt values 0)))))
+(define-binary-class ifd ()
+  ((entry-count u2*)
+   (entries (array :type 'ifd-entry :size entry-count))
+   (next-ifd-offset tiff-ifd-offset)))
+
+(define-binary-type ifd-list ()
+  (:reader (in)
+           (loop for ifd = (read-value 'ifd in)
+              collect ifd
+              while (plusp (next-ifd-offset ifd))))
+  (:writer (out value)
+           (loop for ifd in value
+              do (write-value 'ifd out ifd))))
+
+(define-binary-class tiff-fields ()
+  ((byte-order tiff-byte-order)
+   (magic u2*)
+   (ifd-offset tiff-ifd-offset)
+   (ifd-list ifd-list)))
+
+(defmethod read-value :around ((type (eql 'tiff)) stream &key)
+  (let (*byte-order*)
+    (call-next-method)))
+
 
 (defclass tiff-image ()
   ((length :accessor tiff-image-length :initarg :length)
@@ -303,6 +314,23 @@
    (samples-per-pixel :accessor tiff-image-samples-per-pixel :initarg :samples-per-pixel)
    (data :accessor tiff-image-data :initarg :data)
    (byte-order :accessor tiff-image-byte-order :initarg :byte-order)))
+
+
+(defun get-ifd-values (ifd key)
+  (declare (optimize (debug 3)))
+  (let ((field (find key ifd :key 'tag :test '=)))
+    (when field
+      (data field))))
+
+(defun get-ifd-value (ifd key)
+  (declare (optimize (debug 3)))
+  (let ((values (get-ifd-values ifd key)))
+    (when values (elt values 0))))
+
+(defun read-bytes (stream count)
+  (let ((buf (make-array count :element-type '(unsigned-byte 8))))
+    (read-sequence buf stream)
+    buf))
 
 (defun read-grayscale-strip (stream
                              array
@@ -351,14 +379,15 @@
                            (error "Not yet!"))))))))))))))
 
 (defun read-grayscale-image (stream ifd)
+  (declare (optimize (debug 3)))
   (let ((image-width (get-ifd-value ifd +image-width-tag+))
         (image-length (get-ifd-value ifd +image-length-tag+))
         (bits-per-sample (or (get-ifd-value ifd +bits-per-sample-tag+) 1))
         (compression (get-ifd-value ifd +compression-tag+))
         (photometric-interpretation (get-ifd-value ifd +photometric-interpretation-tag+))
-        (strip-offsets (ensure-vector (get-ifd-values ifd +strip-offsets-tag+)))
+        (strip-offsets (get-ifd-values ifd +strip-offsets-tag+))
         (rows-per-strip (get-ifd-value ifd +rows-per-strip-tag+))
-        (strip-byte-counts (ensure-vector (get-ifd-values ifd +strip-byte-counts-tag+))))
+        (strip-byte-counts (get-ifd-values ifd +strip-byte-counts-tag+)))
     (declare (ignore photometric-interpretation))
     (unless (eql bits-per-sample 8)
       (error "I can only read 8-bit grayscale images at the moment."))
@@ -467,8 +496,8 @@
         (samples-per-pixel (get-ifd-value ifd +samples-per-pixel-tag+))
         (bits-per-sample (get-ifd-values ifd +bits-per-sample-tag+))
         (rows-per-strip (get-ifd-value ifd +rows-per-strip-tag+))
-        (strip-offsets (ensure-vector (get-ifd-values ifd +strip-offsets-tag+)))
-        (strip-byte-counts (ensure-vector (get-ifd-values ifd +strip-byte-counts-tag+)))
+        (strip-offsets (get-ifd-values ifd +strip-offsets-tag+))
+        (strip-byte-counts (get-ifd-values ifd +strip-byte-counts-tag+))
         (compression (get-ifd-value ifd +compression-tag+))
         (planar-configuration (get-ifd-value ifd +planar-configuration-tag+))
         (predictor (get-ifd-value ifd +predictor-tag+)))
@@ -518,473 +547,25 @@
                      :data data
                      :byte-order *byte-order*))))
 
-(defun read-image (stream ifd)
-  (let ((photometric-interpretation 
+(defun read-tiff-stream (stream)
+  (let* ((fields (read-value 'tiff-fields stream))
+         (ifd (entries (first (ifd-list fields)))))
+    (let ((photometric-interpretation 
          (get-ifd-value ifd +photometric-interpretation-tag+)))
     (ecase photometric-interpretation
       ((0 1) (read-grayscale-image stream ifd))
-      (2 (read-rgb-image stream ifd)))))
-
-(defun read-tiff-stream (stream)
-  (let ((*byte-order*))
-    (let ((byte-order (read-int-16 stream)))
-      (ecase byte-order
-        (#x4949 (setf *byte-order* :little-endian))
-        (#x4d4d (setf *byte-order* :big-endian))))
-    (let ((tiff-magic (read-int-16 stream)))
-      (unless (= tiff-magic 42)
-        (error "Error reading TIFF file. ~S is not 42." tiff-magic)))
-    (let ((ifds (read-ifds stream)))
-      (let ((ifd (car ifds)))
-        (read-image stream ifd)))))
+      (2 (read-rgb-image stream ifd))))))
 
 (defun read-tiff-file (pathname)
   (with-open-file (stream pathname :direction :input :element-type '(unsigned-byte 8))
     (read-tiff-stream stream)))
 
-;; we should return the number of strips (and possibly the length of
-;; each strip (uncompressed), but not yet)..
-(defun compute-rows-per-strip (image-length
-                               bytes-per-row
-                               &key (strip-size #x40000))
-  (let ((strip-rows (truncate strip-size bytes-per-row)))
-    (min image-length strip-rows)))
-
-(defclass ifd-entry ()
-  ((tag :accessor ifd-entry-tag :initarg :tag)
-   (field-type :accessor ifd-entry-field-type :initarg :field-type)
-   (count :accessor ifd-entry-count :initarg :count)
-   (values :accessor ifd-entry-values :initarg :values)
-   (extra-data :accessor ifd-entry-extra-data :initarg :extra-data)))
-
-;;; To write a TIFF file to a stream we need to make some
-;;; decisions. If we can randomly seek into the file, then we can
-;;; start writing as we go, seek to the end, retun back to where we
-;;; were before and write the address of the data we just stored. This
-;;; isn't such a good idea if we're trying to write to a stream where
-;;; we can't read (or set) the file-position. Let's see if we can
-;;; figure out how to write the file without using file-position.
-;;;
-;;; TIFF files look like this:
-;;; 
-;;; 1. 2 bytes for the byte-order flag (#x4949 for big-endian, #x4d4d
-;;; for little-endian)
-;;;
-;;; 2. 2 bytes for the magic 16-bit integer (42) (in the appropriate
-;;; endianness).
-;;;
-;;; 3. 4 bytes for the offset of the first directory entry.
-;;; 
-;;; Now comes the tricky part. We can either write the image file
-;;; directory here, pointing to the actual image data later, or we can
-;;; write the image data, squirrel away the position and then put the
-;;; image file directory after the image. Let's try writing the
-;;; directory first, computing the size of the directory, and manually
-;;; calculating the eventual location of the data and storing that in
-;;; the image file directory.
-;;; 
-;;; This means that we can write the 4 bytes for the first directory
-;;; entry as #x00000008.
-;;;
-;;; For the moment let's assume that there will only be one Image File
-;;; Directory (IFD) per file.
-;;; 
-;;; 4. Write the IFD entries.
-;;; 
-;;; In order to this, we will need to know how many IFD entries there
-;;; will be so that we know where to store the data pointed to by the
-;;; IFD entries. Therefore we need to add all of the IFD entries to a
-;;; list prior to actually writing any of them.
-;;;
-;;; The IFD entries consist of a 12-byte IFD entry and its associated
-;;; data, if any. We will refer to these as the IFD Entry (IFDE) and
-;;; the Out-of-line IFDE Values (OIV). If, and only if, I think, an
-;;; IFD Entry has more than 4 bytes of data associated with it, the
-;;; data are stored in in an OIV, otherwise the data are stored
-;;; directly in the IFDE.
-
-;;; All of the IFD entries will appear consecutively in the IFD, each
-;;; taking up 12 bytes each. To compute the size of the size of the
-;;; IFD and it's associated values, we add 2 + (* 12 IFDE-count) +
-;;; [the sum of the length of the OIVs].
-;;;
-;;; In addition to the IFDE's and their associated OIV's, there will
-;;; also be data in the file that isn't in the IFD per se (that is the
-;;; IFDE + the OIV), but rather is pointed to by the IFDE values
-;;; (either inline or out-of-line). We'll call this the data, for lack
-;;; of a better term.
-
-;;; 4a. write the number of IFD entries (2 bytes)
-;;; 
-
-;; TODO:
-
-;; 1. bring add-ifd-entry and write-ifd-entry out of line and place up
-;; here as helper functions
-
-(defun write-tiff-grayscale-stream (stream image &key (byte-order
-                                                       (or *byte-order* :big-endian)))
-  (with-accessors
-        ((image-width tiff-image-width)
-         (image-length tiff-image-length)
-         (image-data tiff-image-data)
-         (bits-per-sample tiff-image-bits-per-sample))
-      image
-    (let* ((samples-per-pixel 1)
-           (*byte-order* byte-order)
-           (stream-offset 0)
-           ifd-entries
-           out-of-line-ifd-entries
-           oiv-pointer
-           (bytes-per-pixel (ash bits-per-sample -3))
-           (bytes-per-row (* image-width bytes-per-pixel))
-           (rows-per-strip
-            (compute-rows-per-strip image-length bytes-per-row)))
-      (destructuring-bind (strip-offsets strip-byte-counts)
-          (apply #'mapcar #'list
-                 (loop for i below image-length by rows-per-strip
-                    for byte-offset from i by (* rows-per-strip
-                                                 bytes-per-row) 
-                    collect (list byte-offset 
-                                  (* bytes-per-row
-                                     (- (min (+ i rows-per-strip)
-                                             image-length) i))))) 
-        (flet ((add-ifd-entry (tag field-type values)
-                 (push (make-instance 'ifd-entry
-                                      :tag tag
-                                      :field-type field-type
-                                      :values values) ifd-entries))
-               (write-ifd-entry (ifd-entry &key data-relative)
-                 (with-accessors ((tag ifd-entry-tag)
-                                  (field-type ifd-entry-field-type)
-                                  (values ifd-entry-values))
-                     ifd-entry
-                   (let ((values values))
-                     (when data-relative
-                       (setf values (map 'vector
-                                         (lambda (x) (+ x oiv-pointer))
-                                         values)))
-                     (write-int-16 stream tag)
-                     (write-int-16 stream field-type)
-                     (let* ((field-count (if (sequencep values)
-                                             (length values)
-                                             1))
-                            (field-size (* (field-length field-type)
-                                           field-count)))
-                       (write-int-32 stream field-count)
-                       
-                       ;; if the tag is strip-offsets, we need to fix up
-                       ;; the location of offsets to point to where the
-                       ;; will actually be, which we only know once we
-                       ;; start writing out the data.
-                       
-                       (if (<= field-size 4)
-                           (progn
-                             (cond
-                               ((= field-type +field-type-short+)
-                                (write-int-16-sequence stream values))
-                               ((= field-type +field-type-ascii+)
-                                (error "Can't write inline (<= 4 byte) asciis yet!"))
-                               ((= field-type +field-type-long+)
-                                (write-int-32-sequence stream values)))
-                             (loop for i from field-size below 4
-                                do (write-byte 0 stream)))
-                           (progn
-                             (push ifd-entry out-of-line-ifd-entries)
-                             (write-int-32 stream oiv-pointer)
-                             (incf oiv-pointer field-size)
-                             (when (oddp oiv-pointer)
-                               (incf oiv-pointer))))))))
-               (write-out-of-line-data (ifd-entry &key data-relative)
-                 (with-accessors ((tag ifd-entry-tag)
-                                  (field-type ifd-entry-field-type)
-                                  (values ifd-entry-values))
-                     ifd-entry
-                   (when data-relative
-                     (let ((values
-                            (map 'vector
-                                 (lambda (x) (+ x oiv-pointer))
-                                 values)))
-                       (cond
-                         ((= field-type +field-type-short+)
-                          (write-int-16-sequence stream values))
-                         ((= field-type +field-type-ascii+)
-                          (error "Can't write inline (<= 4 byte) asciis yet!"))
-                         ((= field-type +field-type-long+)
-                          (write-int-32-sequence stream values))
-                         (t (error "Not yet!")))))
-                   (incf stream-offset (* (field-length field-type)
-                                          (length values)))))
-               (write-data (vector)
-                 (write-sequence vector stream)
-                 (incf stream-offset (length vector))))
-          
-          ;; 1. Write the byte-order bytes (either #x4949 for
-          ;; big-endian, or #4d4d for little-endian).
-          (ecase byte-order
-            (:little-endian (write-int-16 stream #x4949))
-            (:big-endian (write-int-16 stream #x4d4d)))
-          (incf stream-offset 2)
-          
-          ;; 2. Write the magic 16-bit integer 42.
-          (write-int-16 stream 42)
-          (incf stream-offset 2)
-          
-          ;; 3. Write the offset of the first directory entry.
-          (write-int-32 stream 8)
-          (incf stream-offset 4)
-
-          ;; 4. Write the first (and only, for the moment) IFD
-          ;; (Image File Directory).
-          ;;
-          ;; 4a. compute and write the number of directory entries.
-          (add-ifd-entry +image-width-tag+ +field-type-long+ image-width)
-          (add-ifd-entry +image-length-tag+ +field-type-long+ image-length)
-            
-          ;; now we need RowsPerStrip
-          ;; FIXME! assume 8 bits per sample for the moment!
-          (add-ifd-entry +rows-per-strip-tag+ +field-type-long+ rows-per-strip)
-            
-          ;; FIXME! assume 8 bits per sample for the moment!
-          (add-ifd-entry +bits-per-sample-tag+ +field-type-short+ 8)
-
-          (add-ifd-entry +samples-per-pixel-tag+ +field-type-short+
-                         samples-per-pixel)
-            
-          (add-ifd-entry +photometric-interpretation-tag+
-                         +field-type-short+
-                         +photometric-interpretation-black-is-zero+)
-
-          ;; StripByteCounts and StripOffsets
-          (add-ifd-entry +strip-byte-counts-tag+ +field-type-long+
-                         strip-byte-counts)
-          (add-ifd-entry +strip-offsets-tag+ +field-type-long+
-                         strip-offsets)
-
-          ;; Finally, reverse the ifd-entries list
-          (setf ifd-entries
-                (sort ifd-entries #'< :key #'ifd-entry-tag))
-
-          (setf oiv-pointer (+ stream-offset 2 (* (length ifd-entries) 12) 4))
-            
-          (write-int-16 stream (length ifd-entries))
-          (incf stream-offset 2)
-
-          ;; 5. Write the directory entries
-          (loop for ifd-entry in ifd-entries
-             do (write-ifd-entry ifd-entry
-                                 :data-relative 
-                                 (= (ifd-entry-tag ifd-entry)
-                                    +strip-offsets-tag+)))
-            
-          (incf stream-offset (* (length ifd-entries) 12))
-
-          (setf out-of-line-ifd-entries
-                (nreverse out-of-line-ifd-entries))
-          
-          ;; 6. Write 0 to indicate that there are no more IFDs
-          (write-int-32 stream 0)
-          (incf stream-offset 4)
-
-          ;; 7. Write the data for each out-of-line directory entry
-          (loop for ifd-entry in out-of-line-ifd-entries
-             do (write-out-of-line-data ifd-entry
-                                        :data-relative 
-                                        (= (ifd-entry-tag ifd-entry)
-                                           +strip-offsets-tag+)))
-          ;; 8. Now write out the strip data
-          (loop for start in strip-offsets
-             for count in strip-byte-counts
-             do
-               (write-data (subseq image-data start
-                                    (+ start count)))))))))
-
-(defun write-tiff-rgb-stream (stream image &key (byte-order
-                                             (or *byte-order* :big-endian)))
-  (with-accessors
-        ((image-width tiff-image-width)
-         (image-length tiff-image-length)
-         (samples-per-pixel tiff-image-samples-per-pixel)
-         (image-data tiff-image-data)
-         (bits-per-sample tiff-image-bits-per-sample))
-      image
-    (let* ((*byte-order* byte-order)
-           (stream-offset 0)
-           ifd-entries
-           out-of-line-ifd-entries
-           oiv-pointer
-           (bytes-per-pixel
-            (* samples-per-pixel
-               (1+ (ash (1- (apply #'max
-                                   (map 'list #'identity
-                                        bits-per-sample)))
-                        -3))))
-           (bytes-per-row (* image-width bytes-per-pixel))
-           (rows-per-strip
-            (compute-rows-per-strip image-length bytes-per-row)))
-      (destructuring-bind (strip-offsets strip-byte-counts)
-          (apply #'mapcar #'list
-                 (loop for i below image-length by rows-per-strip
-                    for byte-offset from i by (* rows-per-strip
-                                                 bytes-per-row) 
-                    collect (list byte-offset 
-                                  (* bytes-per-row
-                                     (- (min (+ i rows-per-strip)
-                                             image-length) i))))) 
-        (flet ((add-ifd-entry (tag field-type values)
-                 (push (make-instance 'ifd-entry
-                                      :tag tag
-                                      :field-type field-type
-                                      :values values) ifd-entries))
-               (write-ifd-entry (ifd-entry &key data-relative)
-                 (with-accessors ((tag ifd-entry-tag)
-                                  (field-type ifd-entry-field-type)
-                                  (values ifd-entry-values))
-                     ifd-entry
-                   (let ((values values))
-                     (when data-relative
-                       (setf values (map 'vector
-                                         (lambda (x) (+ x oiv-pointer))
-                                         values)))
-                     (write-int-16 stream tag)
-                     (write-int-16 stream field-type)
-                     (let* ((field-count (if (sequencep values)
-                                             (length values)
-                                             1))
-                            (field-size (* (field-length field-type)
-                                           field-count)))
-                       (write-int-32 stream field-count)
-
-                       ;; if the tag is strip-offsets, we need to fix up
-                       ;; the location of offsets to point to where the
-                       ;; will actually be, which we only know once we
-                       ;; start writing out the data.
-                       
-                       (if (<= field-size 4)
-                           (progn
-                             (cond
-                               ((= field-type +field-type-short+)
-                                (write-int-16-sequence stream values))
-                               ((= field-type +field-type-ascii+)
-                                (error "Can't write inline (<= 4 byte) asciis yet!"))
-                               ((= field-type +field-type-long+)
-                                (write-int-32-sequence stream values)))
-                             (loop for i from field-size below 4
-                                do (write-byte 0 stream)))
-                           (progn
-                             (push ifd-entry out-of-line-ifd-entries)
-                             (write-int-32 stream oiv-pointer)
-                             (incf oiv-pointer field-size)
-                             (when (oddp oiv-pointer)
-                               (incf oiv-pointer))))))))
-               (write-out-of-line-data (ifd-entry &key data-relative)
-                 (with-accessors ((tag ifd-entry-tag)
-                                  (field-type ifd-entry-field-type)
-                                  (values ifd-entry-values))
-                     ifd-entry
-                   (when data-relative
-                     (setf values (map 'vector
-                                       (lambda (x) (+ x oiv-pointer))
-                                       values)))
-                   (cond
-                     ((= field-type +field-type-short+)
-                      (write-int-16-sequence stream values))
-                     ((= field-type +field-type-ascii+)
-                      (error "Can't write inline (<= 4 byte) asciis yet!"))
-                     ((= field-type +field-type-long+)
-                      (write-int-32-sequence stream values))
-                     (t (error "Not yet!")))
-                   (incf stream-offset (* (field-length field-type)
-                                          (length values)))))
-               (write-data (vector)
-                 (write-sequence vector stream)
-                 (incf stream-offset (length vector))))
-          
-          ;; 1. Write the byte-order bytes (either #x4949 for
-          ;; big-endian, or #4d4d for little-endian).
-          (ecase byte-order
-            (:little-endian (write-int-16 stream #x4949))
-            (:big-endian (write-int-16 stream #x4d4d)))
-          (incf stream-offset 2)
-          
-          ;; 2. Write the magic 16-bit integer 42.
-          (write-int-16 stream 42)
-          (incf stream-offset 2)
-          
-          ;; 3. Write the offset of the first directory entry.
-          (write-int-32 stream 8)
-          (incf stream-offset 4)
-
-          ;; 4. Write the first (and only, for the moment) IFD
-          ;; (Image File Directory).
-          ;;
-          ;; 4a. compute and write the number of directory entries.
-          (add-ifd-entry +image-width-tag+ +field-type-long+ image-width)
-          (add-ifd-entry +image-length-tag+ +field-type-long+ image-length)
-            
-          ;; now we need RowsPerStrip
-          (add-ifd-entry +rows-per-strip-tag+ +field-type-long+ rows-per-strip)
-            
-          (add-ifd-entry +bits-per-sample-tag+ +field-type-short+
-                         (map 'list #'identity bits-per-sample))
-            
-          (add-ifd-entry +samples-per-pixel-tag+ +field-type-short+
-                         samples-per-pixel)
-            
-          (add-ifd-entry +photometric-interpretation-tag+
-                         +field-type-short+
-                         +photometric-interpretation-rgb+)
-
-          ;; StripByteCounts and StripOffsets
-          (add-ifd-entry +strip-byte-counts-tag+ +field-type-long+
-                         strip-byte-counts)
-          (add-ifd-entry +strip-offsets-tag+ +field-type-long+
-                         strip-offsets)
-            
-          ;; Finally, reverse the ifd-entries list
-          (setf ifd-entries
-                (sort ifd-entries #'< :key #'ifd-entry-tag))
-
-          (setf oiv-pointer (+ stream-offset 2 (* (length ifd-entries) 12) 4))
-            
-          (write-int-16 stream (length ifd-entries))
-          (incf stream-offset 2)
-
-          ;; 5. Write the directory entries
-          (loop for ifd-entry in ifd-entries
-             do (write-ifd-entry ifd-entry
-                                 :data-relative 
-                                 (= (ifd-entry-tag ifd-entry)
-                                    +strip-offsets-tag+)))
-            
-          (incf stream-offset (* (length ifd-entries) 12))
-
-          (setf out-of-line-ifd-entries
-                (nreverse out-of-line-ifd-entries))
-          
-          ;; 6. Write 0 to indicate that there are no more IFDs
-          (write-int-32 stream 0)
-          (incf stream-offset 4)
-            
-          ;; 7. Write the data for each out-of-line directory entry
-          (loop for ifd-entry in out-of-line-ifd-entries
-             do (write-out-of-line-data ifd-entry
-                                        :data-relative 
-                                        (= (ifd-entry-tag ifd-entry)
-                                           +strip-offsets-tag+)))
-          ;; 8. Now write out the strip data
-          (loop for start in strip-offsets
-             for count in strip-byte-counts
-             do (write-data (subseq image-data start
-                                    (+ start count)))))))))
-
-(defun write-tiff-stream (stream image)
-  (with-accessors
-        ((samples-per-pixel tiff-image-samples-per-pixel))
-      image
-    (if (eql samples-per-pixel 1)
-        (write-tiff-grayscale-stream stream image)
-        (write-tiff-rgb-stream stream image))))
+(defun write-tiff-stream (stream obj &key (byte-order :big-endian))
+  (let ((*byte-order* byte-order))
+    ;; FIXME: eventually we'll do something like this:
+    ;;   (let ((fields (make-tiff-felds obj))))
+    #+nil (write-value 'tiff-fields stream obj)
+    (error "not yet implemented")))
 
 (defun write-tiff-file (pathname image)
   (with-open-file (stream pathname
@@ -993,55 +574,3 @@
                           :if-exists :supersede)
     (write-tiff-stream stream image)
     pathname))
-
-(defparameter *image-info-attributes*
-  `((,+image-width-tag+ "Image Width")
-    (,+image-length-tag+ "Image Length")
-    (,+x-resolution-tag+ "X Resolution")
-    (,+y-resolution-tag+ "Y Resolution")
-    (,+samples-per-pixel-tag+ "Samples per Pixel")
-    (,+bits-per-sample-tag+ "Bits per Sample")
-    (,+rows-per-strip-tag+ "Rows per Strip")
-    (,+strip-offsets-tag+ "Strip Offsets")
-    (,+compression-tag+
-     "Compression" 
-     ,(lambda (description values)
-              (cons description 
-                    (cdr (assoc
-                          (elt values 0)
-                          `((,+packbits-compression+ . "Packbits")
-                            (,+lzw-compression+ . "LZW")))))))))
-
-(defun image-info (stream ifd)
-  (let ((rows-per-strip (get-ifd-value ifd +rows-per-strip-tag+))
-        (strip-offsets (get-ifd-values ifd +strip-offsets-tag+))
-        (strip-byte-counts (get-ifd-values ifd +strip-byte-counts-tag+))
-        (compression (get-ifd-value ifd +compression-tag+))
-        (planar-configuration (get-ifd-value ifd +planar-configuration-tag+))
-        (predictor (get-ifd-value ifd +predictor-tag+)))
-    (append
-     (list (cons "Byte Order: " *byte-order*))
-     (loop for attr in *image-info-attributes*
-        collect
-        (destructuring-bind (tag description &optional fn)
-            attr
-          (if fn
-              (funcall fn description (get-ifd-values ifd tag))
-              (cons description (get-ifd-values ifd tag))))))))
-
-(defun read-tiff-stream-info (stream)
-  (let ((*byte-order*))
-    (let ((byte-order (read-int-16 stream)))
-      (ecase byte-order
-        (#x4949 (setf *byte-order* :little-endian))
-        (#x4d4d (setf *byte-order* :big-endian))))
-    (let ((tiff-magic (read-int-16 stream)))
-      (unless (= tiff-magic 42)
-        (error "Error reading TIFF file. ~S is not 42." tiff-magic)))
-    (let ((ifds (read-ifds stream)))
-      (image-info stream (car ifds)))))
-
-(defun read-tiff-file-info (pathname)
-  (with-open-file (stream pathname :direction :input :element-type '(unsigned-byte 8))
-    (read-tiff-stream-info stream)))
-

@@ -29,8 +29,11 @@
 ;;; SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 (cl:defpackage #:retrospectiff
-  (:use #:cl)
+  (:use #:cl
+        #:com.gigamonkeys.binary-data
+        #:com.gigamonkeys.binary-data.common-datatypes)
   (:nicknames #:tiff)
+  (:shadow #:rational #:numerator #:denominator)
   (:export #:read-tiff-stream
            #:read-tiff-file
 

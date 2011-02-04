@@ -16,5 +16,4 @@
      (:cl-source-file "lzw")
      (:cl-source-file "packbits")
      (:cl-source-file "constants")
-     (:cl-source-file "retrospectiff")
-     (:cl-source-file "retrospectiff2")))
+     (:cl-source-file "retrospectiff")))
