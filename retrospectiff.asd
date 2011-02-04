@@ -5,7 +5,8 @@
     :version "0.1.0"
     :licence "BSD"
     :serial t
-    :depends-on (com.gigamonkeys.binary-data)
+    :depends-on (com.gigamonkeys.binary-data
+                 ieee-floats)
     :components
     ((:static-file "COPYRIGHT")
      (:static-file "README")
