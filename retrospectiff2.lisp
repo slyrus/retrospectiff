@@ -7,6 +7,48 @@
 
 (in-package :retrospectiff2)
 
+(defconstant +image-width-tag+ 256)
+(defconstant +image-length-tag+ 257)
+(defconstant +bits-per-sample-tag+ 258)
+(defconstant +compression-tag+ 259)
+(defconstant +photometric-interpretation-tag+ 262)
+(defconstant +strip-offsets-tag+ 273)
+(defconstant +samples-per-pixel-tag+ 277)
+(defconstant +rows-per-strip-tag+ 278)
+(defconstant +rows-per-strip-tag+ 278)
+(defconstant +strip-byte-counts-tag+ 279)
+(defconstant +x-resolution-tag+ 282)
+(defconstant +y-resolution-tag+ 283)
+(defconstant +planar-configuration-tag+ 284)
+(defconstant +resolution-unit-tag+ 296)
+(defconstant +predictor-tag+ 317)
+
+(defconstant +photometric-interpretation-white-is-zero+ 0)
+(defconstant +photometric-interpretation-black-is-zero+ 1)
+(defconstant +photometric-interpretation-rgb+ 2)
+
+(defconstant +horizontal-differencing+ 2)
+
+(defconstant +packbits-compression+ #x8005)
+(defconstant +lzw-compression+ 5)
+
+(defconstant +field-type-byte+ 1)
+(defconstant +field-type-ascii+ 2)
+(defconstant +field-type-short+ 3)
+(defconstant +field-type-long+ 4)
+(defconstant +field-type-rational+ 5)
+(defconstant +field-type-sbyte+ 6)
+(defconstant +field-type-undefined+ 7)
+(defconstant +field-type-sshort+ 8)
+(defconstant +field-type-slong+ 9)
+(defconstant +field-type-srational+ 10)
+(defconstant +field-type-float+ 11)
+(defconstant +field-type-double+ 12)
+
+(defconstant +exif-tag+ 34665)
+(defconstant +icc-profile-tag+ 34675)
+
+
 (defparameter *byte-order* nil)
 
 ;;; Perhaps the next few types should be moved to a
@@ -55,22 +97,6 @@
         (lognot (- (1- (ash 1 bits)) num))
         num)))
 
-(macrolet ((frob-signed-integer-converter (bits)
-             (let ((function-name
-                    (intern
-                     (string-upcase (format nil "convert-to-signed-~A" bits))))
-                   (maxpos (1- (ash 1 (1- bits))))
-                   (logval (1- (ash 1 bits))))
-               `(defun ,function-name (num)
-                  (if (> num ,maxpos)
-                      (lognot (- ,logval num))
-                      num)))))
-  (frob-signed-integer-converter 8)
-  (frob-signed-integer-converter 16)
-  (frob-signed-integer-converter 24)
-  (frob-signed-integer-converter 32)
-  (frob-signed-integer-converter 64))
-
 (defun convert-to-unsigned-integer (num bits)
   (if (minusp num)
       (+ (ash 1 bits) num)
@@ -115,7 +141,7 @@
   (:reader (in)
            (ieee-floats:decode-float64 (read-value 'u8* in)))
   (:writer (out value)
-           (write-value'u4* out (ieee-floats:encode-float64 value))))
+           (write-value'u8* out (ieee-floats:encode-float64 value))))
 
 ;;; end binary-data-extensions section
 ;;;
@@ -289,7 +315,7 @@
            (loop for ifd in value
               do (write-value 'ifd out ifd))))
 
-(define-binary-class tiff ()
+(define-binary-class tiff-fields ()
   ((byte-order tiff-byte-order)
    (magic u2*)
    (ifd-offset tiff-ifd-offset)
@@ -299,10 +325,113 @@
   (let (*byte-order*)
     (call-next-method)))
 
+
+(defclass tiff-image ()
+  ((length :accessor tiff-image-length :initarg :length)
+   (width :accessor tiff-image-width :initarg :width)
+   (bits-per-sample :accessor tiff-image-bits-per-sample :initarg :bits-per-sample)
+   (samples-per-pixel :accessor tiff-image-samples-per-pixel :initarg :samples-per-pixel)
+   (data :accessor tiff-image-data :initarg :data)
+   (byte-order :accessor tiff-image-byte-order :initarg :byte-order)))
+
+
+(defun get-ifd-values (ifd key)
+  (declare (optimize (debug 3)))
+  (let ((field (find key ifd :key 'tag :test '=)))
+    (when field
+      (data field))))
+
+(defun get-ifd-value (ifd key)
+  (declare (optimize (debug 3)))
+  (elt (get-ifd-values ifd key) 0))
+
+(defun read-grayscale-strip (stream
+                             array
+                             start-row
+                             strip-offset
+                             strip-byte-count
+                             width
+                             compression)
+  (file-position stream strip-offset)
+  (ecase compression
+    (1
+     (let ((strip-length (/ strip-byte-count width))
+           ;; FIXME: bytes-per-sample will need to change for 1- or
+           ;; 4-bit images!
+           (bytes-per-pixel 1))
+       (loop for i from start-row below (+ start-row strip-length)
+          do
+            (let ((rowoff (* i width bytes-per-pixel)))
+              (loop for j below width
+                 do 
+                 (setf (aref array (+ rowoff j))
+                       (read-byte stream)))))))
+    (#.+packbits-compression+
+     (error "Not yet!")
+     #+nil
+     (let ((packed-bits (read-bytes stream strip-byte-count)))
+       (let ((decoded (packbits-decode packed-bits))
+             (decoded-offset 0))
+         (let ((strip-length (/ (length decoded) width samples-per-pixel))
+               (bytes-per-sample (/ bytes-per-pixel samples-per-pixel)))
+           (loop for i from start-row below (+ start-row strip-length)
+              do
+              (let ((rowoff (* i width bytes-per-pixel)))
+                (loop for j below width
+                   do 
+                   (let ((pixoff (+ rowoff (* bytes-per-pixel j))))
+                     (loop for k below samples-per-pixel
+                        for bits across bits-per-sample
+                        do 
+                        (case bits
+                          (8 
+                           (setf (aref array (+ pixoff (* k bytes-per-sample)))
+                                 (aref decoded decoded-offset))
+                           (incf decoded-offset))
+                          (16
+                           (error "Not yet!"))))))))))))))
+
+(defun read-grayscale-image (stream ifd)
+  (declare (optimize (debug 3)))
+  (let ((image-width (get-ifd-value ifd +image-width-tag+))
+        (image-length (get-ifd-value ifd +image-length-tag+))
+        (bits-per-sample (or (get-ifd-value ifd +bits-per-sample-tag+) 1))
+        (compression (get-ifd-value ifd +compression-tag+))
+        (photometric-interpretation (get-ifd-value ifd +photometric-interpretation-tag+))
+        (strip-offsets (get-ifd-values ifd +strip-offsets-tag+))
+        (rows-per-strip (get-ifd-value ifd +rows-per-strip-tag+))
+        (strip-byte-counts (get-ifd-values ifd +strip-byte-counts-tag+)))
+    (declare (ignore photometric-interpretation))
+    (unless (eql bits-per-sample 8)
+      (error "I can only read 8-bit grayscale images at the moment."))
+    (let* ((bytes-per-pixel 1)
+           (data (make-array (* image-width image-length bytes-per-pixel))))
+      (loop for strip-offset across strip-offsets
+         for strip-byte-count across strip-byte-counts
+         for row-offset = 0 then (+ row-offset rows-per-strip)
+         do (read-grayscale-strip stream
+                                  data
+                                  row-offset
+                                  strip-offset
+                                  strip-byte-count
+                                  image-width
+                                  compression))
+      (make-instance 'tiff-image
+                     :length image-length
+                     :width image-width
+                     :bits-per-sample bits-per-sample
+                     :samples-per-pixel 1
+                     :data data
+                     :byte-order *byte-order*))))
+
 (defun read-tiff-stream (stream)
-  (read-value 'tiff stream))
+  (let* ((fields (read-value 'tiff-fields stream))
+         (ifd (entries (first (ifd-list fields)))))
+    (read-grayscale-image stream ifd)))
 
 (defun write-tiff-stream (stream obj &key (byte-order :big-endian))
   (let ((*byte-order* byte-order))
-    (write-value 'tiff stream obj)))
+    ;; FIXME: eventually we'll do something like this:
+    ;;   (let ((fields (make-tiff-felds obj))))
+    (write-value 'tiff-fields stream obj)))
 
