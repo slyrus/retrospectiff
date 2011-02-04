@@ -105,15 +105,18 @@
     (u2 . 2)
     (u4 . 4)))
 
-(define-binary-type inline-array (type size)
+(define-binary-type inline-array (type size position element-type)
   (:reader (in)
            (let* ((bytes-per-element (cdr (assoc type *binary-type-sizes*))))
              (let ((pad (- (/ 4 bytes-per-element) size)))
                (when (minusp pad)
                  (error "tried to read more than 4 bytes inline!"))
                (prog1
-                   (map 'vector #'identity
-                        (loop for i below size collect (read-value type in)))
+                   (let ((v (apply #'make-array size
+                                   (when element-type `(:element-type ,element-type)))))
+                     (loop for i below size
+                        do (setf (elt v i) (read-value type in)))
+                     v)
                  (loop for i below pad do (read-value type in))))))
   (:writer (out value)
            (let* ((bytes-per-element (cdr (assoc type *binary-type-sizes*))))
