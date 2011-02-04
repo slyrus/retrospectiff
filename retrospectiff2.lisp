@@ -206,47 +206,6 @@
                           (loop for i below pad
                              do (write-value type 0 out))))))))
 
-(define-binary-type inline-array (type size position element-type)
-  (:reader (in)
-           (let* ((bytes-per-element (cdr (assoc type *binary-type-sizes*))))
-             (let ((pad (- (/ 4 bytes-per-element) size)))
-               (when (minusp pad)
-                 (error "tried to read more than 4 bytes inline!"))
-               (prog1
-                   (let ((v (apply #'make-array size
-                                   (when element-type `(:element-type ,element-type)))))
-                     (loop for i below size
-                        do (setf (elt v i) (read-value type in)))
-                     v)
-                 (loop for i below pad do (read-value type in))))))
-  (:writer (out value)
-           (let* ((bytes-per-element (cdr (assoc type *binary-type-sizes*))))
-             (let ((pad (- (/ 4 bytes-per-element) size)))
-               (when (minusp pad)
-                 (error "tried to write more than 4 bytes inline!"))
-               (loop for x across value
-                  do (write-value type x out))
-               (loop for i below pad
-                  do (write-value type 0 out))))))
-
-(define-binary-type non-inline-array (type size position element-type)
-  (:reader (in)
-           (let ((cur (file-position in)))
-             (file-position in position)
-             (prog1 
-                 (let ((v (apply #'make-array size
-                                 (when element-type `(:element-type ,element-type)))))
-                   (loop for i below size
-                      do (setf (elt v i) (read-value type in)))
-                   v)
-               (file-position in cur))))
-  (:writer (out value)
-           (let ((cur (file-position out)))
-             (file-position out position)
-             (loop for x across value
-                do (write-value type x out))
-             (file-position out cur))))
-
 ;; 1 - byte
 (define-binary-class byte-ifd-entry (ifd-entry)
   ((data (ifd-array :type 'u1 :size value-count))))
