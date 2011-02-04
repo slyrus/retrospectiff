@@ -14,7 +14,7 @@ to get started, check out the read-tiff-file function.
 
 Currently, only a small subset of TIFF images are supported, but it
 can read 8-bit RGB and ARGB images in both uncompressed form and LZW
-compressed form. It can also write 8-bit ARGB uncompressed TIFF images.
+compressed form.
 
 Planned features include:
 

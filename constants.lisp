@@ -23,8 +23,10 @@
 
 (defconstant +horizontal-differencing+ 2)
 
-(defconstant +packbits-compression+ #x8005)
+(defconstant +no-compression+ 1)
 (defconstant +lzw-compression+ 5)
+(defconstant +packbits-compression+ #x8005)
+
 
 (defconstant +field-type-byte+ 1)
 (defconstant +field-type-ascii+ 2)

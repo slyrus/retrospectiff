@@ -393,39 +393,26 @@
       (loop for strip-offset across strip-offsets
          for strip-byte-count across strip-byte-counts
          for row-offset = 0 then (+ row-offset rows-per-strip)
-         do (read-grayscale-strip stream
-                                  data
-                                  row-offset
-                                  strip-offset
-                                  strip-byte-count
-                                  image-width
-                                  compression))
+         do (read-grayscale-strip stream data row-offset
+                                  strip-offset strip-byte-count
+                                  image-width compression))
       (make-instance 'tiff-image
-                     :length image-length
-                     :width image-width
+                     :length image-length :width image-width
                      :bits-per-sample bits-per-sample
-                     :samples-per-pixel 1
-                     :data data
+                     :samples-per-pixel 1 :data data
                      :byte-order *byte-order*))))
 
-(defun read-rgb-strip (stream
-                       array
-                       start-row
-                       strip-offset
-                       strip-byte-count
-                       width
-                       bits-per-sample
-                       samples-per-pixel
-                       bytes-per-pixel
-                       compression)
+(defun read-rgb-strip (stream array start-row strip-offset
+                       strip-byte-count width bits-per-sample samples-per-pixel
+                       bytes-per-pixel compression)
   (file-position stream strip-offset)
   (ecase compression
-    (1
+    (#.+no-compression+
      (let ((strip-length (/ strip-byte-count width bytes-per-pixel))
            (bytes-per-sample (/ bytes-per-pixel samples-per-pixel)))
        (loop for i from start-row below (+ start-row strip-length)
           do
-          (let ((rowoff (* i width bytes-per-pixel)))
+            (let ((rowoff (* i width bytes-per-pixel)))
             (loop for j below width
                do 
                (let ((pixoff (+ rowoff (* bytes-per-pixel j))))
@@ -537,12 +524,10 @@
                                      (aref data (- (+ offset k) samples-per-pixel)))
                                   #xff))))))))
       (make-instance 'tiff-image
-                     :length image-length
-                     :width image-width
+                     :length image-length :width image-width
                      :bits-per-sample bits-per-sample
                      :samples-per-pixel samples-per-pixel
-                     :data data
-                     :byte-order *byte-order*))))
+                     :data data :byte-order *byte-order*))))
 
 (defun read-tiff-stream (stream)
   (let* ((fields (read-value 'tiff-fields stream))
@@ -558,6 +543,7 @@
     (read-tiff-stream stream)))
 
 (defun write-tiff-stream (stream obj &key (byte-order :big-endian))
+  (declare (ignore stream obj))
   (let ((*byte-order* byte-order))
     ;; FIXME: eventually we'll do something like this:
     ;;   (let ((fields (make-tiff-felds obj))))
