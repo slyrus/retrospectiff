@@ -317,13 +317,11 @@
 
 
 (defun get-ifd-values (ifd key)
-  (declare (optimize (debug 3)))
   (let ((field (find key ifd :key 'tag :test '=)))
     (when field
       (data field))))
 
 (defun get-ifd-value (ifd key)
-  (declare (optimize (debug 3)))
   (let ((values (get-ifd-values ifd key)))
     (when values (elt values 0))))
 
@@ -379,7 +377,6 @@
                            (error "Not yet!"))))))))))))))
 
 (defun read-grayscale-image (stream ifd)
-  (declare (optimize (debug 3)))
   (let ((image-width (get-ifd-value ifd +image-width-tag+))
         (image-length (get-ifd-value ifd +image-length-tag+))
         (bits-per-sample (or (get-ifd-value ifd +bits-per-sample-tag+) 1))

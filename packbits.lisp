@@ -46,7 +46,6 @@
        output))))
 
 (defun packbits-decode (compressed-vector &key stream)
-  (declare (optimize (debug 2)))
   (let ((output (make-array 256
                             :element-type '(unsigned-byte 8)
                             :fill-pointer 0

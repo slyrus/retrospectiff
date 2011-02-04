@@ -50,7 +50,6 @@
 
 (defun vector-contents-of-stream (in)
   "Returns a string with the entire contents of the specified file."
-  (declare (optimize (debug 2)))
   (let ((contents (make-array 4096
                               :element-type '(unsigned-byte 8)
                               :fill-pointer 0
