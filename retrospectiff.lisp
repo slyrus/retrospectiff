@@ -66,7 +66,7 @@
               (loop for low-bit downfrom (* bits-per-byte (1- bytes)) to 0 by bits-per-byte
                  do (write-byte (ldb (byte bits-per-byte low-bit) value) out)))
              (:little-endian
-              (loop for low-bit to  (* bits-per-byte (1- bytes)) by bits-per-byte
+              (loop for low-bit to (* bits-per-byte (1- bytes)) by bits-per-byte
                  do (write-byte (ldb (byte bits-per-byte low-bit) value) out))))))
 
 (define-binary-type u2* () (unsigned-integer* :bytes 2 :bits-per-byte 8))
@@ -200,18 +200,20 @@
            (let* ((bytes-per-element (cdr (assoc type *binary-type-sizes*))))
              (let ((pad (- (/ 4 bytes-per-element) size)))
                (if (minusp pad)
-                   (let ((cur (file-position out)))
-                     (progn (file-position out *tiff-file-offset*)
+                   (let ((cur (file-position out))
+                         (offset *tiff-file-offset*))
+                     (progn (file-position out offset)
                             (loop for x across value
-                               do (write-value type x out))
+                               do (write-value type out x))
                             ;; need to make sure this is word aligned!
                             (setf *tiff-file-offset*
                                   (ash (ash (1+ (file-position out)) -1) 1))
-                            (file-position out cur)))
+                            (file-position out cur)
+                            (write-value 'u4* out offset)))
                    (progn (loop for x across value
-                             do (write-value type x out))
+                             do (write-value type out x))
                           (loop for i below pad
-                             do (write-value type 0 out))))))))
+                             do (write-value type out 0))))))))
 
 ;; 1 - byte
 (define-binary-class byte-ifd-entry (ifd-entry)
@@ -542,21 +544,33 @@
   (with-open-file (stream pathname :direction :input :element-type '(unsigned-byte 8))
     (read-tiff-stream stream)))
 
-(defun add-ifd-entry (fields entry)
-  (push entry (ifd-list fields))
-  fields)
+(defun add-ifd-entry (ifd entry)
+  (push entry (entries ifd))
+  (incf (entry-count ifd))
+  ifd)
+
+(defun vectorize (data)
+  (etypecase data
+    (vector data)
+    (list (apply #'vector data))
+    (nil nil)
+    (atom (vector data))))
 
 (defun make-ifd-entry-long (tag data)
-  (make-instance 'long-ifd-entry
-                 :tag tag
-                 :field-type +field-type-long+
-                 :data data))
+  (let ((data (vectorize data)))
+    (make-instance 'long-ifd-entry
+                   :tag tag
+                   :field-type +field-type-long+
+                   :data data
+                   :value-count (length data))))
 
 (defun make-ifd-entry-short (tag data)
-  (make-instance 'short-ifd-entry
-                 :tag tag
-                 :field-type +field-type-short+
-                 :data data))
+  (let ((data (vectorize data)))
+    (make-instance 'short-ifd-entry
+                   :tag tag
+                   :field-type +field-type-short+
+                   :data data
+                   :value-count (length data))))
 
 ;; we should return the number of strips (and possibly the length of
 ;; each strip (uncompressed), but not yet)..
@@ -574,8 +588,8 @@
          (bits-per-sample tiff-image-bits-per-sample)
          (samples-per-pixel tiff-image-samples-per-pixel))
       image
-    (let* ((num-bits-per-sample (if (listp bits-per-sample)
-                                    (first bits-per-sample)
+    (let* ((num-bits-per-sample (if (typep bits-per-sample 'sequence)
+                                    (elt bits-per-sample 0)
                                     bits-per-sample))
            (bytes-per-row (ash (* image-width samples-per-pixel num-bits-per-sample)
                                -3))
@@ -583,7 +597,11 @@
            (fields (make-instance 'tiff-fields
                                   :byte-order *byte-order*
                                   :magic 42
-                                  :ifd-list nil)))
+                                  :ifd-list nil))
+           (ifd (make-instance 'ifd
+                               :entry-count 0
+                               :entries nil
+                               :next-ifd-offset 0)))
 
       (destructuring-bind (strip-offsets strip-byte-counts)
           (apply #'mapcar #'list
@@ -599,26 +617,29 @@
                       (make-ifd-entry-long +image-width-tag+ image-width)
                       (make-ifd-entry-short +bits-per-sample-tag+ bits-per-sample)
                       (make-ifd-entry-short +samples-per-pixel-tag+ samples-per-pixel))
-                :initial-value fields)
+                :initial-value ifd)
         (cond
           ((= samples-per-pixel 1)
            (add-ifd-entry 
-            fields
+            ifd
             (make-ifd-entry-short +photometric-interpretation-tag+
                                   +photometric-interpretation-black-is-zero+)))
           ((= samples-per-pixel 3)
            (add-ifd-entry 
-            fields
+            ifd
             (make-ifd-entry-short +photometric-interpretation-tag+
-                                  +photometric-interpretation-rgb+))))
-        ))))
+                                  +photometric-interpretation-rgb+)))))
+      (setf (ifd-list fields)
+            (list ifd))
+      (fixup-ifd-entries fields))))
 
 (defun fixup-ifd-entries (fields)
   (incf *tiff-file-offset* 8)
-  (let ((num-entries (length (ifd-list fields))))
-    (incf *tiff-file-offset* (+ 2 (* num-entries 12))))
-  #+nil (loop for ifd in (ifd-list fields)
-       (setf )))
+  (setf (ifd-offset fields) *tiff-file-offset*)
+  (let ((ifd (car (ifd-list fields))))
+    (let ((num-entries (entry-count ifd)))
+      (incf *tiff-file-offset* (+ 2 (* num-entries 12)))))
+  fields)
 
 ;;;
 ;;; The general strategy here is to:
