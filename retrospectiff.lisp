@@ -30,7 +30,8 @@
 
 (in-package :retrospectiff)
 
-(defparameter *byte-order* nil)
+(defparameter *byte-order* :big-endian)
+(defvar *tiff-file-offset*)
 
 ;;; Perhaps the next few types should be moved to a
 ;;; binary-data-extensions file or some such?
@@ -199,14 +200,13 @@
            (let* ((bytes-per-element (cdr (assoc type *binary-type-sizes*))))
              (let ((pad (- (/ 4 bytes-per-element) size)))
                (if (minusp pad)
-                   (let ((position 0)
-                         (cur (file-position out)))
-                     (declare (ignore position cur))
-                     (error "this is broken until we figure out how to compute position!")
-                     #+nil
-                     (progn (file-position out position)
+                   (let ((cur (file-position out)))
+                     (progn (file-position out *tiff-file-offset*)
                             (loop for x across value
                                do (write-value type x out))
+                            ;; need to make sure this is word aligned!
+                            (setf *tiff-file-offset*
+                                  (ash (ash (1+ (file-position out)) -1) 1))
                             (file-position out cur)))
                    (progn (loop for x across value
                              do (write-value type x out))
@@ -542,13 +542,109 @@
   (with-open-file (stream pathname :direction :input :element-type '(unsigned-byte 8))
     (read-tiff-stream stream)))
 
-(defun write-tiff-stream (stream obj &key (byte-order :big-endian))
-  (declare (ignore stream obj))
-  (let ((*byte-order* byte-order))
-    ;; FIXME: eventually we'll do something like this:
-    ;;   (let ((fields (make-tiff-felds obj))))
-    #+nil (write-value 'tiff-fields stream obj)
-    (error "not yet implemented")))
+(defun add-ifd-entry (fields entry)
+  (push entry (ifd-list fields))
+  fields)
+
+(defun make-ifd-entry-long (tag data)
+  (make-instance 'long-ifd-entry
+                 :tag tag
+                 :field-type +field-type-long+
+                 :data data))
+
+(defun make-ifd-entry-short (tag data)
+  (make-instance 'short-ifd-entry
+                 :tag tag
+                 :field-type +field-type-short+
+                 :data data))
+
+;; we should return the number of strips (and possibly the length of
+;; each strip (uncompressed), but not yet)..
+(defun compute-rows-per-strip (image-length
+                               bytes-per-row
+                               &key (strip-size #x40000))
+  (let ((strip-rows (truncate strip-size bytes-per-row)))
+    (min image-length strip-rows)))
+
+(defun make-tiff-fields (image)
+  (with-accessors
+        ((image-width tiff-image-width)
+         (image-length tiff-image-length)
+         (image-data tiff-image-data)
+         (bits-per-sample tiff-image-bits-per-sample)
+         (samples-per-pixel tiff-image-samples-per-pixel))
+      image
+    (let* ((num-bits-per-sample (if (listp bits-per-sample)
+                                    (first bits-per-sample)
+                                    bits-per-sample))
+           (bytes-per-row (ash (* image-width samples-per-pixel num-bits-per-sample)
+                               -3))
+           (rows-per-strip (compute-rows-per-strip image-length bytes-per-row))
+           (fields (make-instance 'tiff-fields
+                                  :byte-order *byte-order*
+                                  :magic 42
+                                  :ifd-list nil)))
+
+      (destructuring-bind (strip-offsets strip-byte-counts)
+          (apply #'mapcar #'list
+                 (loop for i below image-length by rows-per-strip
+                    for byte-offset from i by (* rows-per-strip
+                                                 bytes-per-row) 
+                    collect (list byte-offset 
+                                  (* bytes-per-row
+                                     (- (min (+ i rows-per-strip)
+                                             image-length) i)))))
+        (reduce #'add-ifd-entry 
+                (list (make-ifd-entry-long +image-length-tag+ image-length)
+                      (make-ifd-entry-long +image-width-tag+ image-width)
+                      (make-ifd-entry-short +bits-per-sample-tag+ bits-per-sample)
+                      (make-ifd-entry-short +samples-per-pixel-tag+ samples-per-pixel))
+                :initial-value fields)
+        (cond
+          ((= samples-per-pixel 1)
+           (add-ifd-entry 
+            fields
+            (make-ifd-entry-short +photometric-interpretation-tag+
+                                  +photometric-interpretation-black-is-zero+)))
+          ((= samples-per-pixel 3)
+           (add-ifd-entry 
+            fields
+            (make-ifd-entry-short +photometric-interpretation-tag+
+                                  +photometric-interpretation-rgb+))))
+        ))))
+
+(defun fixup-ifd-entries (fields)
+  (incf *tiff-file-offset* 8)
+  (let ((num-entries (length (ifd-list fields))))
+    (incf *tiff-file-offset* (+ 2 (* num-entries 12))))
+  #+nil (loop for ifd in (ifd-list fields)
+       (setf )))
+
+;;;
+;;; The general strategy here is to:
+;;;
+;;; 1. make the TIFF Image File Directory (we're only going to deal
+;;; with single images per TIFF file for the moment)
+;;;
+;;; 2. Compute the offsets of the first (and only IFD -- probably 8)
+;;;
+;;; 3. Compute the offset of the various IFD arrays that aren't
+;;;    represented inline -- starting at the offset of the IFD + (2 +
+;;;    number of directory entries * 12)
+;;; 
+;;; 4. Compute the offset of the strip/sample data
+;;;
+;;; 5. Write the TIFF Header
+;;;
+;;; 6. Write the IFD directory entries (inline portions), then write
+;;; the non-inline values
+;;;
+;;; 7. Write the sample (strip) data
+(defun write-tiff-stream (stream obj &key byte-order)
+  (let ((*byte-order* (or byte-order *byte-order*))
+        (*tiff-file-offset* 0))
+    (let ((fields (make-tiff-fields obj)))
+      (write-value 'tiff-fields stream fields))))
 
 (defun write-tiff-file (pathname image)
   (with-open-file (stream pathname
