@@ -202,6 +202,8 @@
                (if (minusp pad)
                    (let ((cur (file-position out))
                          (offset *tiff-file-offset*))
+                     (print (list 'cur cur))
+                     (print (list 'offset offset))
                      (progn (file-position out offset)
                             (loop for x across value
                                do (write-value type out x))
@@ -215,21 +217,33 @@
                           (loop for i below pad
                              do (write-value type out 0))))))))
 
+
+(defgeneric bytes-per-entry (class))
+(defgeneric entry-bytes (ifd-entry))
+
+(defmethod entry-bytes ((entry ifd-entry))
+  (* (value-count entry)
+     (bytes-per-entry (class-of entry))))
+
 ;; 1 - byte
 (define-binary-class byte-ifd-entry (ifd-entry)
   ((data (ifd-array :type 'u1 :size value-count))))
+(defmethod bytes-per-entry ((class (eql (find-class 'byte-ifd-entry)))) 1)
 
 ;; 2 - ascii
 (define-binary-class ascii-ifd-entry (ifd-entry)
   ((data (ifd-array :type 'iso-8859-1-char :size value-count :element-type 'character))))
+(defmethod bytes-per-entry ((class (eql (find-class 'ascii-ifd-entry)))) 1)
 
 ;; 3 -- short
 (define-binary-class short-ifd-entry (ifd-entry)
   ((data (ifd-array :type 'u2* :size value-count))))
+(defmethod bytes-per-entry ((class (eql (find-class 'short-ifd-entry)))) 2)
 
 ;; 4 -- long
 (define-binary-class long-ifd-entry (ifd-entry)
   ((data (ifd-array :type 'u4* :size value-count))))
+(defmethod bytes-per-entry ((class (eql (find-class 'long-ifd-entry)))) 4)
 
 ;; 5 -- rational
 (define-binary-class rational ()
@@ -238,23 +252,29 @@
 
 (define-binary-class rational-ifd-entry (ifd-entry)
   ((data (ifd-array :type 'rational :size value-count))))
+(defmethod bytes-per-entry ((class (eql (find-class 'rational-ifd-entry)))) 8)
 
 ;; 6 -- signed byte
 (define-binary-class sbyte-ifd-entry (ifd-entry)
   ((data (ifd-array :type 's1* :size value-count))))
+(defmethod bytes-per-entry ((class (eql (find-class 'sbyte-ifd-entry)))) 8)
 
 ;; 7 -- undefined (and unused, at least for now)
 #+nil
 (define-binary-class undefined-ifd-entry (ifd-entry)
   ((value-offset u4*)))
+#+nil
+(defmethod bytes-per-entry ((class (eql (find-class 'undefined-ifd-entry)))) 4)
 
 ;; 8 -- signed short
 (define-binary-class sshort-ifd-entry (ifd-entry)
   ((data (ifd-array :type 's2* :size value-count))))
+(defmethod bytes-per-entry ((class (eql (find-class 'sshort-ifd-entry)))) 2)
 
 ;; 9 -- signed long
 (define-binary-class slong-ifd-entry (ifd-entry)
   ((data (ifd-array :type 's4* :size value-count))))
+(defmethod bytes-per-entry ((class (eql (find-class 'slong-ifd-entry)))) 4)
 
 ;; 10 -- signed rational
 (define-binary-class srational ()
@@ -263,14 +283,17 @@
 
 (define-binary-class srational-ifd-entry (ifd-entry)
   ((data (ifd-array :type 'srational :size value-count))))
+(defmethod bytes-per-entry ((class (eql (find-class 'srational-ifd-entry)))) 8)
 
 ;; 11
 (define-binary-class float-ifd-entry (ifd-entry)
   ((data (ifd-array :type 'f4* :size value-count))))
+(defmethod bytes-per-entry ((class (eql (find-class 'float-ifd-entry)))) 4)
 
 ;; 12
 (define-binary-class double-ifd-entry (ifd-entry)
   ((data (ifd-array :type 'f8* :size value-count))))
+(defmethod bytes-per-entry ((class (eql (find-class 'double-ifd-entry)))) 8)
 
 
 (define-binary-type tiff-ifd-offset ()
@@ -296,7 +319,10 @@
               while (plusp (next-ifd-offset ifd))))
   (:writer (out value)
            (loop for ifd in value
-              do (write-value 'ifd out ifd))))
+              do
+                (setf (entries ifd)
+                      (sort (entries ifd) #'< :key #'tag))
+                (write-value 'ifd out ifd))))
 
 (define-binary-class tiff-fields ()
   ((byte-order tiff-byte-order)
@@ -556,6 +582,14 @@
     (nil nil)
     (atom (vector data))))
 
+(defun make-ifd-entry-short (tag data)
+  (let ((data (vectorize data)))
+    (make-instance 'short-ifd-entry
+                   :tag tag
+                   :field-type +field-type-short+
+                   :data data
+                   :value-count (length data))))
+
 (defun make-ifd-entry-long (tag data)
   (let ((data (vectorize data)))
     (make-instance 'long-ifd-entry
@@ -564,13 +598,22 @@
                    :data data
                    :value-count (length data))))
 
-(defun make-ifd-entry-short (tag data)
+(defun make-ifd-entry-rational (tag data)
   (let ((data (vectorize data)))
-    (make-instance 'short-ifd-entry
+    (make-instance 'rational-ifd-entry
                    :tag tag
-                   :field-type +field-type-short+
-                   :data data
+                   :field-type +field-type-rational+
+                   :data (map 'vector
+                              (lambda (x)
+                                (make-instance 'rational :numerator (car x)
+                                               :denominator (cdr x)))
+                              (print data))
                    :value-count (length data))))
+
+
+(defun ifd-entry-out-of-line-bytes (entry)
+  (let ((bytes (entry-bytes entry)))
+    (if (> bytes 4) bytes 0)))
 
 ;; we should return the number of strips (and possibly the length of
 ;; each strip (uncompressed), but not yet)..
@@ -591,8 +634,8 @@
     (let* ((num-bits-per-sample (if (typep bits-per-sample 'sequence)
                                     (elt bits-per-sample 0)
                                     bits-per-sample))
-           (bytes-per-row (ash (* image-width samples-per-pixel num-bits-per-sample)
-                               -3))
+           (bytes-per-pixel (* samples-per-pixel (ash num-bits-per-sample -3)))
+           (bytes-per-row (* image-width bytes-per-pixel))
            (rows-per-strip (compute-rows-per-strip image-length bytes-per-row))
            (fields (make-instance 'tiff-fields
                                   :byte-order *byte-order*
@@ -616,7 +659,10 @@
                 (list (make-ifd-entry-long +image-length-tag+ image-length)
                       (make-ifd-entry-long +image-width-tag+ image-width)
                       (make-ifd-entry-short +bits-per-sample-tag+ bits-per-sample)
-                      (make-ifd-entry-short +samples-per-pixel-tag+ samples-per-pixel))
+                      (make-ifd-entry-short +samples-per-pixel-tag+ samples-per-pixel)
+                      (make-ifd-entry-rational +x-resolution-tag+ (vector (cons 72 1)))
+                      (make-ifd-entry-rational +y-resolution-tag+ (vector (cons 72 1)))
+                      (make-ifd-entry-short +resolution-unit-tag+ 2))
                 :initial-value ifd)
         (cond
           ((= samples-per-pixel 1)
@@ -628,18 +674,44 @@
            (add-ifd-entry 
             ifd
             (make-ifd-entry-short +photometric-interpretation-tag+
-                                  +photometric-interpretation-rgb+)))))
-      (setf (ifd-list fields)
-            (list ifd))
-      (fixup-ifd-entries fields))))
+                                  +photometric-interpretation-rgb+))))
 
-(defun fixup-ifd-entries (fields)
-  (incf *tiff-file-offset* 8)
-  (setf (ifd-offset fields) *tiff-file-offset*)
-  (let ((ifd (car (ifd-list fields))))
-    (let ((num-entries (entry-count ifd)))
-      (incf *tiff-file-offset* (+ 2 (* num-entries 12)))))
-  fields)
+        (add-ifd-entry ifd
+                       (make-ifd-entry-long +rows-per-strip-tag+ rows-per-strip))
+        (add-ifd-entry ifd
+                       (make-ifd-entry-long +strip-byte-counts-tag+ strip-byte-counts))
+        
+        (setf (ifd-list fields) (list ifd))
+
+        (incf *tiff-file-offset* 8)
+        (setf (ifd-offset fields) *tiff-file-offset*)
+        
+        (let ((num-entries (print (entry-count ifd))))
+          (incf *tiff-file-offset* (+ 2 (* num-entries 12))))
+        
+        (let ((out-of-line-data-size 
+               (* 4 (length strip-offsets))))
+          (loop for entry in (entries ifd)
+             do (describe entry) 
+               (incf out-of-line-data-size 
+                     (ifd-entry-out-of-line-bytes entry)))
+        
+          ;; skip one more ifd-entry
+          (incf *tiff-file-offset* 12)
+          (incf *tiff-file-offset* 4)
+                    
+          ;; *file-offset* to the strip-offsets
+          (add-ifd-entry
+           ifd
+           (make-ifd-entry-long
+            +strip-offsets-tag+
+            (print (map 'vector
+                        (lambda (x) (+ x
+                                       *tiff-file-offset*
+                                       out-of-line-data-size))
+                        strip-offsets))))
+
+          (values fields out-of-line-data-size strip-offsets strip-byte-counts))))))
 
 ;;;
 ;;; The general strategy here is to:
@@ -664,8 +736,22 @@
 (defun write-tiff-stream (stream obj &key byte-order)
   (let ((*byte-order* (or byte-order *byte-order*))
         (*tiff-file-offset* 0))
-    (let ((fields (make-tiff-fields obj)))
-      (write-value 'tiff-fields stream fields))))
+    (multiple-value-bind (fields out-of-line-data-size strip-offsets strip-byte-counts) 
+        (make-tiff-fields obj)
+      (write-value 'tiff-fields stream fields)
+      (file-position stream (+ (file-position stream) out-of-line-data-size))
+      (print (list 'pos3 (file-position stream)))
+      (with-accessors
+            ((image-width tiff-image-width)
+             (image-length tiff-image-length)
+             (image-data tiff-image-data))
+          obj
+        (loop for start in strip-offsets
+           for count in strip-byte-counts
+           do
+             (write-sequence (subseq image-data start
+                                     (+ start count))
+                             stream))))))
 
 (defun write-tiff-file (pathname image)
   (with-open-file (stream pathname
@@ -674,3 +760,5 @@
                           :if-exists :supersede)
     (write-tiff-stream stream image)
     pathname))
+
+
