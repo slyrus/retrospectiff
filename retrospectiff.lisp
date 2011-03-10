@@ -670,7 +670,7 @@
             ifd
             (make-ifd-entry-short +photometric-interpretation-tag+
                                   +photometric-interpretation-black-is-zero+)))
-          ((= samples-per-pixel 3)
+          ((member samples-per-pixel '(3 4))
            (add-ifd-entry 
             ifd
             (make-ifd-entry-short +photometric-interpretation-tag+
