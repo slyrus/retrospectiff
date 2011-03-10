@@ -202,8 +202,6 @@
                (if (minusp pad)
                    (let ((cur (file-position out))
                          (offset *tiff-file-offset*))
-                     (print (list 'cur cur))
-                     (print (list 'offset offset))
                      (progn (file-position out offset)
                             (loop for x across value
                                do (write-value type out x))
@@ -607,7 +605,7 @@
                               (lambda (x)
                                 (make-instance 'rational :numerator (car x)
                                                :denominator (cdr x)))
-                              (print data))
+                              data)
                    :value-count (length data))))
 
 
@@ -686,15 +684,14 @@
         (incf *tiff-file-offset* 8)
         (setf (ifd-offset fields) *tiff-file-offset*)
         
-        (let ((num-entries (print (entry-count ifd))))
+        (let ((num-entries (entry-count ifd)))
           (incf *tiff-file-offset* (+ 2 (* num-entries 12))))
         
         (let ((out-of-line-data-size 
                (* 4 (length strip-offsets))))
           (loop for entry in (entries ifd)
-             do (describe entry) 
-               (incf out-of-line-data-size 
-                     (ifd-entry-out-of-line-bytes entry)))
+             do (incf out-of-line-data-size 
+                      (ifd-entry-out-of-line-bytes entry)))
         
           ;; skip one more ifd-entry
           (incf *tiff-file-offset* 12)
@@ -705,11 +702,11 @@
            ifd
            (make-ifd-entry-long
             +strip-offsets-tag+
-            (print (map 'vector
-                        (lambda (x) (+ x
-                                       *tiff-file-offset*
-                                       out-of-line-data-size))
-                        strip-offsets))))
+            (map 'vector
+                 (lambda (x) (+ x
+                                *tiff-file-offset*
+                                out-of-line-data-size))
+                 strip-offsets)))
 
           (values fields out-of-line-data-size strip-offsets strip-byte-counts))))))
 
@@ -740,7 +737,6 @@
         (make-tiff-fields obj)
       (write-value 'tiff-fields stream fields)
       (file-position stream (+ (file-position stream) out-of-line-data-size))
-      (print (list 'pos3 (file-position stream)))
       (with-accessors
             ((image-width tiff-image-width)
              (image-length tiff-image-length)
@@ -753,12 +749,12 @@
                                      (+ start count))
                              stream))))))
 
-(defun write-tiff-file (pathname image)
+(defun write-tiff-file (pathname image &rest args)
   (with-open-file (stream pathname
                           :direction :output
                           :element-type '(unsigned-byte 8)
                           :if-exists :supersede)
-    (write-tiff-stream stream image)
+    (apply #'write-tiff-stream stream image args)
     pathname))
 
 
