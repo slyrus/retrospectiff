@@ -342,7 +342,9 @@
                       :initform nil)
    (data :accessor tiff-image-data :initarg :data)
    (byte-order :accessor tiff-image-byte-order :initarg :byte-order)
-   (color-map :accessor tiff-image-color-map :initarg :color-map :initform nil)))
+   (color-map :accessor tiff-image-color-map :initarg :color-map :initform nil)
+   (min-is-white :accessor tiff-image-min-is-white :initarg :min-is-white
+                 :initform nil)))
 
 
 (defun get-ifd-values (ifd key)
@@ -365,21 +367,30 @@
                              strip-offset
                              strip-byte-count
                              width
+                             bits-per-sample
                              compression)
   (file-position stream strip-offset)
   (ecase compression
-    (1
-     (let ((strip-length (/ strip-byte-count width))
-           ;; FIXME: bytes-per-sample will need to change for 1- or
-           ;; 4-bit images!
-           (bytes-per-pixel 1))
-       (loop for i from start-row below (+ start-row strip-length)
-          do
-            (let ((rowoff (* i width bytes-per-pixel)))
-              (loop for j below width
-                 do 
-                 (setf (aref array (+ rowoff j))
-                       (read-byte stream)))))))
+    (#.+no-compression+
+     (ecase bits-per-sample
+       (1
+        (let* ((bytes-per-row (1+ (ash (1- width) -3)))
+               (strip-length (/ strip-byte-count bytes-per-row)))
+          (loop for i from start-row below (+ start-row strip-length)
+             do
+               (let ((rowoff (* i bytes-per-row)))
+                 (read-sequence array stream
+                                :start rowoff
+                                :end (+ rowoff bytes-per-row))))))
+       (8
+        (let ((strip-length (/ strip-byte-count width))
+              (bytes-per-pixel 1))
+          (loop for i from start-row below (+ start-row strip-length)
+             do
+             (let ((rowoff (* i width bytes-per-pixel)))
+               (read-sequence array stream
+                              :start rowoff
+                              :end (+ rowoff width))))))))
     (#.+packbits-compression+
      (error "Not yet!")
      #+nil
@@ -414,8 +425,25 @@
         (strip-offsets (get-ifd-values ifd +strip-offsets-tag+))
         (rows-per-strip (get-ifd-value ifd +rows-per-strip-tag+))
         (strip-byte-counts (get-ifd-values ifd +strip-byte-counts-tag+)))
-    (declare (ignore photometric-interpretation))
     (case bits-per-sample
+      (1
+       (let* ((bytes-per-row (1+ (ash (1- image-width) -3)))
+              (data (make-array (* bytes-per-row image-length))))
+         (loop for strip-offset across strip-offsets
+            for strip-byte-count across strip-byte-counts
+            for row-offset = 0 then (+ row-offset rows-per-strip)
+            do (read-grayscale-strip stream data row-offset
+                                     strip-offset strip-byte-count
+                                     image-width
+                                     bits-per-sample
+                                     compression))
+         (make-instance 'tiff-image
+                        :length image-length :width image-width
+                        :bits-per-sample bits-per-sample
+                        :samples-per-pixel 1 :data data
+                        :byte-order *byte-order*
+                        :min-is-white (= photometric-interpretation
+                                         +photometric-interpretation-white-is-zero+))))
       (8
        (let* ((bytes-per-pixel 1)
               (data (make-array (* image-width image-length bytes-per-pixel))))
@@ -424,7 +452,9 @@
             for row-offset = 0 then (+ row-offset rows-per-strip)
             do (read-grayscale-strip stream data row-offset
                                      strip-offset strip-byte-count
-                                     image-width compression))
+                                     image-width
+                                     bits-per-sample
+                                     compression))
          (make-instance 'tiff-image
                         :length image-length :width image-width
                         :bits-per-sample bits-per-sample
@@ -622,7 +652,6 @@
                         (error "Not yet!")))))))))))))
 
 (defun read-indexed-image (stream ifd)
-  (declare (optimize (debug 3)))
   (let ((image-width (get-ifd-value ifd +image-width-tag+))
         (image-length (get-ifd-value ifd +image-length-tag+))
         (bits-per-sample (get-ifd-value ifd +bits-per-sample-tag+))
