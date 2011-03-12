@@ -338,10 +338,11 @@
    (width :accessor tiff-image-width :initarg :width)
    (bits-per-sample :accessor tiff-image-bits-per-sample :initarg :bits-per-sample)
    (samples-per-pixel :accessor tiff-image-samples-per-pixel
-                      :initarg :samples-per-pixel)
+                      :initarg :samples-per-pixel
+                      :initform nil)
    (data :accessor tiff-image-data :initarg :data)
    (byte-order :accessor tiff-image-byte-order :initarg :byte-order)
-   (color-map :accessor tiff-image-color-map :initarg :color-map)))
+   (color-map :accessor tiff-image-color-map :initarg :color-map :initform nil)))
 
 
 (defun get-ifd-values (ifd key)
@@ -414,21 +415,24 @@
         (rows-per-strip (get-ifd-value ifd +rows-per-strip-tag+))
         (strip-byte-counts (get-ifd-values ifd +strip-byte-counts-tag+)))
     (declare (ignore photometric-interpretation))
-    (unless (eql bits-per-sample 8)
-      (error "I can only read 8-bit grayscale images at the moment."))
-    (let* ((bytes-per-pixel 1)
-           (data (make-array (* image-width image-length bytes-per-pixel))))
-      (loop for strip-offset across strip-offsets
-         for strip-byte-count across strip-byte-counts
-         for row-offset = 0 then (+ row-offset rows-per-strip)
-         do (read-grayscale-strip stream data row-offset
-                                  strip-offset strip-byte-count
-                                  image-width compression))
-      (make-instance 'tiff-image
-                     :length image-length :width image-width
-                     :bits-per-sample bits-per-sample
-                     :samples-per-pixel 1 :data data
-                     :byte-order *byte-order*))))
+    (case bits-per-sample
+      (8
+       (let* ((bytes-per-pixel 1)
+              (data (make-array (* image-width image-length bytes-per-pixel))))
+         (loop for strip-offset across strip-offsets
+            for strip-byte-count across strip-byte-counts
+            for row-offset = 0 then (+ row-offset rows-per-strip)
+            do (read-grayscale-strip stream data row-offset
+                                     strip-offset strip-byte-count
+                                     image-width compression))
+         (make-instance 'tiff-image
+                        :length image-length :width image-width
+                        :bits-per-sample bits-per-sample
+                        :samples-per-pixel 1 :data data
+                        :byte-order *byte-order*)))
+      (t
+       (unless (eql bits-per-sample 8)
+         (error "I can only read 8-bit grayscale images at the moment."))))))
 
 (defun read-rgb-strip (stream array start-row strip-offset
                        strip-byte-count width bits-per-sample samples-per-pixel
