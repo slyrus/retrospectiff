@@ -337,9 +337,11 @@
   ((length :accessor tiff-image-length :initarg :length)
    (width :accessor tiff-image-width :initarg :width)
    (bits-per-sample :accessor tiff-image-bits-per-sample :initarg :bits-per-sample)
-   (samples-per-pixel :accessor tiff-image-samples-per-pixel :initarg :samples-per-pixel)
+   (samples-per-pixel :accessor tiff-image-samples-per-pixel
+                      :initarg :samples-per-pixel)
    (data :accessor tiff-image-data :initarg :data)
-   (byte-order :accessor tiff-image-byte-order :initarg :byte-order)))
+   (byte-order :accessor tiff-image-byte-order :initarg :byte-order)
+   (color-map :accessor tiff-image-color-map :initarg :color-map)))
 
 
 (defun get-ifd-values (ifd key)
@@ -555,14 +557,135 @@
                      :samples-per-pixel samples-per-pixel
                      :data data :byte-order *byte-order*))))
 
+(defun read-indexed-strip (stream array start-row strip-offset
+                           strip-byte-count width bits-per-sample
+                           bytes-per-pixel compression)
+  (file-position stream strip-offset)
+  (ecase compression
+    (#.+no-compression+
+     (let ((strip-length (/ strip-byte-count width bytes-per-pixel)))
+       (loop for i from start-row below (+ start-row strip-length)
+          do
+            (let ((rowoff (* i width bytes-per-pixel)))
+            (loop for j below width
+               do 
+               (let ((pixoff (+ rowoff (* bytes-per-pixel j))))
+                 (case bits-per-sample
+                   (8 
+                    (setf (aref array pixoff)
+                          (read-byte stream)))
+                   (16
+                    ;; FIXME! This assumes big-endian data!!!!
+                    (setf (aref array pixoff)
+                          (read-byte stream)
+                          (aref array (+ 1 pixoff))
+                          (read-byte stream))))))))))
+    (#.+lzw-compression+
+     (let ((lzw (read-bytes stream strip-byte-count)))
+       (let ((decoded (lzw-decode lzw))
+             (decoded-offset 0))
+         (let ((strip-length (/ (length decoded) width)))
+           (loop for i from start-row below (+ start-row strip-length)
+              do
+              (let ((rowoff (* i width bytes-per-pixel)))
+                (loop for j below width
+                   do 
+                   (let ((pixoff (+ rowoff (* bytes-per-pixel j))))
+                     (case bits-per-sample
+                       (8 
+                        (setf (aref array pixoff)
+                              (aref decoded decoded-offset))
+                        (incf decoded-offset))
+                       (16
+                        (error "Not yet!")))))))))))
+    (#.+packbits-compression+
+     (let ((packed-bits (read-bytes stream strip-byte-count)))
+       (let ((decoded (packbits-decode packed-bits))
+             (decoded-offset 0))
+         (let ((strip-length (/ (length decoded) width)))
+           (loop for i from start-row below (+ start-row strip-length)
+              do
+              (let ((rowoff (* i width bytes-per-pixel)))
+                (loop for j below width
+                   do 
+                   (let ((pixoff (+ rowoff (* bytes-per-pixel j))))
+                     (case bits-per-sample
+                       (8 
+                        (setf (aref array pixoff)
+                              (aref decoded decoded-offset))
+                        (incf decoded-offset))
+                       (16
+                        (error "Not yet!")))))))))))))
+
+(defun read-indexed-image (stream ifd)
+  (declare (optimize (debug 3)))
+  (let ((image-width (get-ifd-value ifd +image-width-tag+))
+        (image-length (get-ifd-value ifd +image-length-tag+))
+        (bits-per-sample (get-ifd-value ifd +bits-per-sample-tag+))
+        (rows-per-strip (get-ifd-value ifd +rows-per-strip-tag+))
+        (strip-offsets (get-ifd-values ifd +strip-offsets-tag+))
+        (strip-byte-counts (get-ifd-values ifd +strip-byte-counts-tag+))
+        (compression (get-ifd-value ifd +compression-tag+))
+        (predictor (get-ifd-value ifd +predictor-tag+))
+        (color-map (get-ifd-values ifd +color-map-tag+)))
+    (let* ((k (expt 2 bits-per-sample))
+           (color-index (make-array k)))
+      (loop for i below k
+         do (setf (aref color-index i)
+                  (list (aref color-map i)
+                        (aref color-map (+ k i))
+                        (aref color-map (+ (ash k 1) i)))))
+      ;; FIXME
+      ;; 1. we need to support predictors for lzw encoded images.
+      (let* ((bytes-per-pixel
+              (1+ (ash (1- bits-per-sample)
+                       -3)))
+             (data (make-array (* image-width image-length bytes-per-pixel))))
+        (loop for strip-offset across strip-offsets
+           for strip-byte-count across strip-byte-counts
+           for row-offset = 0 then (+ row-offset rows-per-strip)
+           do (read-indexed-strip stream
+                                  data
+                                  row-offset
+                                  strip-offset
+                                  strip-byte-count
+                                  image-width
+                                  bits-per-sample
+                                  bytes-per-pixel
+                                  compression))
+        (case predictor
+          (#.+horizontal-differencing+
+           (loop for i below image-length
+              do 
+              (loop for j from 1 below image-width
+                 do 
+                 (let ((offset (+ (* i image-width) j)))
+                   (setf (aref data offset)
+                         (logand
+                          (+ (aref data offset)
+                             (aref data (1- offset)))
+                          #xff)))))))
+        (make-instance 'tiff-image
+                       :length image-length :width image-width
+                       :bits-per-sample bits-per-sample
+                       :data data :byte-order *byte-order*
+                       :color-map color-index)))))
+
 (defun read-tiff-stream (stream)
   (let* ((fields (read-value 'tiff-fields stream))
          (ifd (entries (first (ifd-list fields)))))
     (let ((photometric-interpretation 
          (get-ifd-value ifd +photometric-interpretation-tag+)))
     (ecase photometric-interpretation
-      ((0 1) (read-grayscale-image stream ifd))
-      (2 (read-rgb-image stream ifd))))))
+      (#.+photometric-interpretation-white-is-zero+
+       (read-grayscale-image stream ifd))
+      (#.+photometric-interpretation-black-is-zero+
+       ;;; FIXME! This image should be inverted
+       (read-grayscale-image stream ifd))
+      (#.+photometric-interpretation-rgb+
+       (read-rgb-image stream ifd))
+      (#.+photometric-interpretation-palette-color+
+       (read-indexed-image stream ifd))))))
 
 (defun read-tiff-file (pathname)
   (with-open-file (stream pathname :direction :input :element-type '(unsigned-byte 8))
