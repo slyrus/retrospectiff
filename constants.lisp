@@ -16,10 +16,12 @@
 (defconstant +planar-configuration-tag+ 284)
 (defconstant +resolution-unit-tag+ 296)
 (defconstant +predictor-tag+ 317)
+(defconstant +color-map-tag+ 320)
 
 (defconstant +photometric-interpretation-white-is-zero+ 0)
 (defconstant +photometric-interpretation-black-is-zero+ 1)
 (defconstant +photometric-interpretation-rgb+ 2)
+(defconstant +photometric-interpretation-palette-color+ 3)
 
 (defconstant +horizontal-differencing+ 2)
 
