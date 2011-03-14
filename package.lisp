@@ -46,5 +46,7 @@
            #:tiff-image-samples-per-pixel
            #:tiff-image-bits-per-sample
            #:tiff-image-data
-           #:tiff-image-byte-order))
+           #:tiff-image-byte-order
+           #:tiff-image-color-map
+           #:tiff-image-min-is-white))
 
