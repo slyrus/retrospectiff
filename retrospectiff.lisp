@@ -567,61 +567,23 @@
                            strip-byte-count width bits-per-sample
                            bytes-per-pixel compression)
   (file-position stream strip-offset)
-  (ecase compression
-    (#.+no-compression+
-     (let ((strip-length (/ strip-byte-count width bytes-per-pixel)))
-       (loop for i from start-row below (+ start-row strip-length)
-          do
-            (let ((rowoff (* i width bytes-per-pixel)))
-            (loop for j below width
-               do 
-               (let ((pixoff (+ rowoff (* bytes-per-pixel j))))
-                 (case bits-per-sample
-                   (8 
-                    (setf (aref array pixoff)
-                          (read-byte stream)))
-                   (16
-                    ;; FIXME! This assumes big-endian data!!!!
-                    (setf (aref array pixoff)
-                          (read-byte stream)
-                          (aref array (+ 1 pixoff))
-                          (read-byte stream))))))))))
-    (#.+lzw-compression+
-     (let ((lzw (read-bytes stream strip-byte-count)))
-       (let ((decoded (lzw-decode lzw))
-             (decoded-offset 0))
-         (let ((strip-length (/ (length decoded) width)))
-           (loop for i from start-row below (+ start-row strip-length)
-              do
-              (let ((rowoff (* i width bytes-per-pixel)))
-                (loop for j below width
-                   do 
-                   (let ((pixoff (+ rowoff (* bytes-per-pixel j))))
-                     (case bits-per-sample
-                       (8 
-                        (setf (aref array pixoff)
-                              (aref decoded decoded-offset))
-                        (incf decoded-offset))
-                       (16
-                        (error "Not yet!")))))))))))
-    (#.+packbits-compression+
-     (let ((packed-bits (read-bytes stream strip-byte-count)))
-       (let ((decoded (packbits-decode packed-bits))
-             (decoded-offset 0))
-         (let ((strip-length (/ (length decoded) width)))
-           (loop for i from start-row below (+ start-row strip-length)
-              do
-              (let ((rowoff (* i width bytes-per-pixel)))
-                (loop for j below width
-                   do 
-                   (let ((pixoff (+ rowoff (* bytes-per-pixel j))))
-                     (case bits-per-sample
-                       (8 
-                        (setf (aref array pixoff)
-                              (aref decoded decoded-offset))
-                        (incf decoded-offset))
-                       (16
-                        (error "Not yet!")))))))))))))
+  (let ((compressed (read-bytes stream strip-byte-count)))
+    (let ((decoded (funcall (find-compression-decoder compression) compressed))
+	  (decoded-offset 0))
+      (let ((strip-length (/ (length decoded) width)))
+	(loop for i from start-row below (+ start-row strip-length)
+	   do
+	   (let ((rowoff (* i width bytes-per-pixel)))
+	     (loop for j below width
+		do
+		(let ((pixoff (+ rowoff (* bytes-per-pixel j))))
+		  (case bits-per-sample
+		    (8
+		     (setf (aref array pixoff)
+			   (aref decoded decoded-offset))
+		     (incf decoded-offset))
+		    (16
+		     (error "Not yet!")))))))))))
 
 (defun read-indexed-image (stream ifd)
   (let ((image-width (get-ifd-value ifd +image-width-tag+))
