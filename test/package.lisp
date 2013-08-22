@@ -2,4 +2,4 @@
 ;;; See COPYRIGHT file for details.
 
 (cl:defpackage :retrospectiff-test
-  (:use #:cl #:retrospectiff))
+  (:use #:cl #:retrospectiff #:hu.dwim.stefil))

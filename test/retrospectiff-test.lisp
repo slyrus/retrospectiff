@@ -3,24 +3,19 @@
 
 (in-package #:retrospectiff-test)
 
-;;; TIFF reading
+(defun %file (name) (asdf:system-relative-pathname "retrospectiff" (format nil "test/images/~a.tiff" name)))
+(defun %image (name) (read-tiff-file (%file name)))
+(defun %data (name) (tiff-image-data (%image name)))
 
-(defparameter *snow-image* (read-tiff-file "test/images/snow.tiff"))
-(defparameter *snow-lzw-image* (read-tiff-file "test/images/snow-lzw.tiff"))
 
-(assert (equalp (tiff-image-data *snow-image*)
-                (tiff-image-data *snow-lzw-image*)))
+(defsuite* compressions ())
 
-#+nil (write-tiff-file "foo.tiff" *snow-image* :if-exists :supersede)
+(deftest compare-grayscale ()
+  (is (equalp (%data "snow-grayscale") (%data "snow-grayscale-lzw"))))
 
-#+nil
-(with-open-file (stream "test/images/snow.tiff" :element-type '(unsigned-byte 8))
-  (let ((length (file-length stream)))
-    (let ((vector (make-array length :element-type '(unsigned-byte 8))))
-      (read-sequence vector stream)
-      (with-open-file (outstream "quux.tiff"
-                                 :direction :output
-                                 :if-exists :supersede
-                                 :element-type '(unsigned-byte 8))
-        (write-sequence vector outstream)))))
+(deftest compare-indexed ()
+  (is (equalp (%data "snow-indexed") (%data "snow-indexed-lzw"))))
 
+(deftest compare-rgb ()
+  (is (equalp (%data "snow-rgb-packbits") (%data "snow-rgb-lzw")))
+  (is (equalp (%data "snow-rgb-lzw") (%data "snow-rgb"))))
