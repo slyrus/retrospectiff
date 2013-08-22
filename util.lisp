@@ -87,3 +87,11 @@
                                fill-pointer)))
     (setf (fill-pointer array) fill-pointer)))
 
+(defun remove-keyword-args (keywords list)
+  (if (listp keywords)
+      (loop for (x y) on list by #'cddr
+         append (unless (member x keywords)
+                  (list x y)))
+      (loop for (x y) on list by #'cddr
+         append (unless (eq x keywords)
+                  (list x y)))))
