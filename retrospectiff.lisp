@@ -482,7 +482,7 @@
   (let ((compressed (read-bytes stream strip-byte-count)))
     (let ((decoded (funcall (find-compression-decoder compression) compressed))
 	  (decoded-offset 0))
-      (let ((strip-length (/ (length decoded) width samples-per-pixel))
+      (let ((strip-length (/ (length decoded) width bytes-per-pixel))
 	    (bytes-per-sample (/ bytes-per-pixel samples-per-pixel)))
 	(loop for i from start-row below (+ start-row strip-length)
 	   do
@@ -499,7 +499,13 @@
 			      (aref decoded decoded-offset))
 			(incf decoded-offset))
 		       (16
-			(error "Not yet!"))))))))))))
+                        ;; FIXME: this assumes big-endian image data!
+                        (setf (aref array (+ pixoff (* k bytes-per-sample)))
+			      (aref decoded decoded-offset))
+			(incf decoded-offset)
+                        (setf (aref array (+ 1 pixoff (* k bytes-per-sample)))
+			      (aref decoded decoded-offset))
+			(incf decoded-offset))))))))))))
 
 (defun read-rgb-image (stream ifd)
   (let ((image-width (get-ifd-value ifd +image-width-tag+))
