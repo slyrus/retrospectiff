@@ -905,7 +905,7 @@
                                      (+ start count))
                              stream))))))
 
-(defun write-tiff-file (pathname image &rest args &key (if-exists :error))
+(defun write-tiff-file (pathname image &rest args &key (if-exists :error) &allow-other-keys)
   (with-open-file (stream pathname
                           :direction :output
                           :element-type '(unsigned-byte 8)
