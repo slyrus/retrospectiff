@@ -499,13 +499,14 @@
 			      (aref decoded decoded-offset))
 			(incf decoded-offset))
 		       (16
-                        ;; FIXME: this assumes big-endian image data!
-                        (setf (aref array (+ pixoff (* k bytes-per-sample)))
-			      (aref decoded decoded-offset))
-			(incf decoded-offset)
-                        (setf (aref array (+ 1 pixoff (* k bytes-per-sample)))
-			      (aref decoded decoded-offset))
-			(incf decoded-offset))))))))))))
+			(let ((ordering (case *byte-order*
+					  (:big-endian '(0 1))
+					  (:little-endian '(1 0)))))
+			  (setf (aref array (+ (first ordering) pixoff (* k bytes-per-sample)))
+				(aref decoded decoded-offset)
+				(aref array (+ (second ordering) pixoff (* k bytes-per-sample)))
+				(aref decoded (1+ decoded-offset)))
+			  (incf decoded-offset 2)))))))))))))
 
 (defun read-rgb-image (stream ifd)
   (let ((image-width (get-ifd-value ifd +image-width-tag+))
