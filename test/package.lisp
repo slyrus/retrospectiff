@@ -2,4 +2,7 @@
 ;;; See COPYRIGHT file for details.
 
 (cl:defpackage :retrospectiff-test
-  (:use #:cl #:retrospectiff #:hu.dwim.stefil))
+  (:use #:cl #:retrospectiff #:hu.dwim.stefil)
+  (:import-from #:flexi-streams
+		#:with-input-from-sequence
+		#:with-output-to-sequence))
