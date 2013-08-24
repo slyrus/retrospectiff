@@ -475,14 +475,19 @@
 			      (aref decoded decoded-offset))
 			(incf decoded-offset))
 		       (16
-			(let ((ordering (case *byte-order*
-					  (:big-endian '(0 1))
-					  (:little-endian '(1 0)))))
-			  (setf (aref array (+ (first ordering) pixoff (* k bytes-per-sample)))
+		     (let ((data-offset (+ pixoff (ash k 1))))
+		       (ecase *byte-order*
+			 (:big-endian
+			  (setf (aref array data-offset)
 				(aref decoded decoded-offset)
-				(aref array (+ (second ordering) pixoff (* k bytes-per-sample)))
-				(aref decoded (1+ decoded-offset)))
-			  (incf decoded-offset 2)))))))))))))
+				(aref array (1+ data-offset))
+				(aref decoded (1+ decoded-offset))))
+			 (:little-endian
+			  (setf (aref array (1+ data-offset))
+				(aref decoded decoded-offset)
+				(aref array data-offset)
+				(aref decoded (1+ decoded-offset)))))
+		     (incf decoded-offset 2)))))))))))))
 
 (defun read-rgb-image (stream ifd)
   (let ((image-width (get-ifd-value ifd +image-width-tag+))
@@ -559,14 +564,19 @@
 			   (aref decoded decoded-offset))
 		     (incf decoded-offset))
 		    (16
-		     (let ((ordering (case *byte-order*
-					  (:big-endian '(0 1))
-					  (:little-endian '(1 0)))))
-			  (setf (aref array (+ (first ordering) pixoff (* k bytes-per-sample)))
+		     (let ((data-offset (+ pixoff (ash k 1))))
+		       (ecase *byte-order*
+			 (:big-endian
+			  (setf (aref array data-offset)
 				(aref decoded decoded-offset)
-				(aref array (+ (second ordering) pixoff (* k bytes-per-sample)))
-				(aref decoded (1+ decoded-offset)))
-			  (incf decoded-offset 2))))))))))))
+				(aref array (1+ data-offset))
+				(aref decoded (1+ decoded-offset))))
+			 (:little-endian
+			  (setf (aref array (1+ data-offset))
+				(aref decoded decoded-offset)
+				(aref array data-offset)
+				(aref decoded (1+ decoded-offset)))))
+		     (incf decoded-offset 2))))))))))))
 
 (defun read-indexed-image (stream ifd)
   (let ((image-width (get-ifd-value ifd +image-width-tag+))
