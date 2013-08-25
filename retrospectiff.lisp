@@ -367,10 +367,11 @@
 	(list +lzw-compression+ #'lzw-decode #'lzw-encode)))
 
 (defun find-compression-decoder (compression)
-  (let ((decoder (cadr (assoc compression *compressions*))))
-    (if decoder
-	decoder
-	(error "Compression not supported: ~a" compression))))
+  (let ((compression (or compression +no-compression+)))
+    (let ((decoder (cadr (assoc compression *compressions*))))
+      (if decoder
+	  decoder
+	  (error "Compression not supported: ~a" compression)))))
 
 (defun read-grayscale-strip (stream
                              array
