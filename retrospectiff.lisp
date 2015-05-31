@@ -382,51 +382,27 @@
                              bits-per-sample
                              compression)
   (file-position stream strip-offset)
-  (ecase compression
-    (#.+no-compression+
-     (ecase bits-per-sample
-       (1
-        (let* ((bytes-per-row (1+ (ash (1- width) -3)))
-               (strip-length (/ strip-byte-count bytes-per-row)))
-          (loop for i from start-row below (+ start-row strip-length)
-             do
-               (let ((rowoff (* i bytes-per-row)))
-                 (read-sequence array stream
-                                :start rowoff
-                                :end (+ rowoff bytes-per-row))))))
-       (8
-        (let ((strip-length (/ strip-byte-count width))
-              (bytes-per-pixel 1))
-          (loop for i from start-row below (+ start-row strip-length)
-             do
-             (let ((rowoff (* i width bytes-per-pixel)))
-               (read-sequence array stream
-                              :start rowoff
-                              :end (+ rowoff width))))))))
-    (#.+packbits-compression+
-     (error "Not yet!")
-     #+nil
-     (let ((packed-bits (read-bytes stream strip-byte-count)))
-       (let ((decoded (packbits-decode packed-bits))
-             (decoded-offset 0))
-         (let ((strip-length (/ (length decoded) width samples-per-pixel))
-               (bytes-per-sample (/ bytes-per-pixel samples-per-pixel)))
-           (loop for i from start-row below (+ start-row strip-length)
-              do
-              (let ((rowoff (* i width bytes-per-pixel)))
-                (loop for j below width
-                   do 
-                   (let ((pixoff (+ rowoff (* bytes-per-pixel j))))
-                     (loop for k below samples-per-pixel
-                        for bits across bits-per-sample
-                        do 
-                        (case bits
-                          (8 
-                           (setf (aref array (+ pixoff (* k bytes-per-sample)))
-                                 (aref decoded decoded-offset))
-                           (incf decoded-offset))
-                          (16
-                           (error "Not yet!"))))))))))))))
+  (let ((compressed (read-bytes stream strip-byte-count)))
+    (let ((stream (make-in-memory-input-stream (funcall (find-compression-decoder compression) compressed))))
+      (ecase bits-per-sample
+	(1
+	 (let* ((bytes-per-row (1+ (ash (1- width) -3)))
+		(strip-length (/ strip-byte-count bytes-per-row)))
+	   (loop for i from start-row below (+ start-row strip-length)
+	      do
+	      (let ((rowoff (* i bytes-per-row)))
+		(read-sequence array stream
+			       :start rowoff
+			       :end (+ rowoff bytes-per-row))))))
+	(8
+	 (let ((strip-length (/ strip-byte-count width))
+	       (bytes-per-pixel 1))
+	   (loop for i from start-row below (+ start-row strip-length)
+	      do
+	      (let ((rowoff (* i width bytes-per-pixel)))
+		(read-sequence array stream
+			       :start rowoff
+			       :end (+ rowoff width))))))))))
 
 (defun read-grayscale-image (stream ifd)
   (let ((image-width (get-ifd-value ifd +image-width-tag+))
@@ -500,13 +476,19 @@
 			      (aref decoded decoded-offset))
 			(incf decoded-offset))
 		       (16
-                        ;; FIXME: this assumes big-endian image data!
-                        (setf (aref array (+ pixoff (* k bytes-per-sample)))
-			      (aref decoded decoded-offset))
-			(incf decoded-offset)
-                        (setf (aref array (+ 1 pixoff (* k bytes-per-sample)))
-			      (aref decoded decoded-offset))
-			(incf decoded-offset))))))))))))
+		     (let ((data-offset (+ pixoff (ash k 1))))
+		       (ecase *byte-order*
+			 (:big-endian
+			  (setf (aref array data-offset)
+				(aref decoded decoded-offset)
+				(aref array (1+ data-offset))
+				(aref decoded (1+ decoded-offset))))
+			 (:little-endian
+			  (setf (aref array (1+ data-offset))
+				(aref decoded decoded-offset)
+				(aref array data-offset)
+				(aref decoded (1+ decoded-offset)))))
+		     (incf decoded-offset 2)))))))))))))
 
 (defun read-rgb-image (stream ifd)
   (let ((image-width (get-ifd-value ifd +image-width-tag+))
@@ -567,61 +549,35 @@
                            strip-byte-count width bits-per-sample
                            bytes-per-pixel compression)
   (file-position stream strip-offset)
-  (ecase compression
-    (#.+no-compression+
-     (let ((strip-length (/ strip-byte-count width bytes-per-pixel)))
-       (loop for i from start-row below (+ start-row strip-length)
-          do
-            (let ((rowoff (* i width bytes-per-pixel)))
-            (loop for j below width
-               do 
-               (let ((pixoff (+ rowoff (* bytes-per-pixel j))))
-                 (case bits-per-sample
-                   (8 
-                    (setf (aref array pixoff)
-                          (read-byte stream)))
-                   (16
-                    ;; FIXME! This assumes big-endian data!!!!
-                    (setf (aref array pixoff)
-                          (read-byte stream)
-                          (aref array (+ 1 pixoff))
-                          (read-byte stream))))))))))
-    (#.+lzw-compression+
-     (let ((lzw (read-bytes stream strip-byte-count)))
-       (let ((decoded (lzw-decode lzw))
-             (decoded-offset 0))
-         (let ((strip-length (/ (length decoded) width)))
-           (loop for i from start-row below (+ start-row strip-length)
-              do
-              (let ((rowoff (* i width bytes-per-pixel)))
-                (loop for j below width
-                   do 
-                   (let ((pixoff (+ rowoff (* bytes-per-pixel j))))
-                     (case bits-per-sample
-                       (8 
-                        (setf (aref array pixoff)
-                              (aref decoded decoded-offset))
-                        (incf decoded-offset))
-                       (16
-                        (error "Not yet!")))))))))))
-    (#.+packbits-compression+
-     (let ((packed-bits (read-bytes stream strip-byte-count)))
-       (let ((decoded (packbits-decode packed-bits))
-             (decoded-offset 0))
-         (let ((strip-length (/ (length decoded) width)))
-           (loop for i from start-row below (+ start-row strip-length)
-              do
-              (let ((rowoff (* i width bytes-per-pixel)))
-                (loop for j below width
-                   do 
-                   (let ((pixoff (+ rowoff (* bytes-per-pixel j))))
-                     (case bits-per-sample
-                       (8 
-                        (setf (aref array pixoff)
-                              (aref decoded decoded-offset))
-                        (incf decoded-offset))
-                       (16
-                        (error "Not yet!")))))))))))))
+  (let ((compressed (read-bytes stream strip-byte-count)))
+    (let ((decoded (funcall (find-compression-decoder compression) compressed))
+	  (decoded-offset 0))
+      (let ((strip-length (/ (length decoded) width)))
+	(loop for i from start-row below (+ start-row strip-length)
+	   do
+	   (let ((rowoff (* i width bytes-per-pixel)))
+	     (loop for j below width
+		do
+		(let ((pixoff (+ rowoff (* bytes-per-pixel j))))
+		  (case bits-per-sample
+		    (8
+		     (setf (aref array pixoff)
+			   (aref decoded decoded-offset))
+		     (incf decoded-offset))
+		    (16
+		     (let ((data-offset (+ pixoff (ash k 1))))
+		       (ecase *byte-order*
+			 (:big-endian
+			  (setf (aref array data-offset)
+				(aref decoded decoded-offset)
+				(aref array (1+ data-offset))
+				(aref decoded (1+ decoded-offset))))
+			 (:little-endian
+			  (setf (aref array (1+ data-offset))
+				(aref decoded decoded-offset)
+				(aref array data-offset)
+				(aref decoded (1+ decoded-offset)))))
+		     (incf decoded-offset 2))))))))))))
 
 (defun read-indexed-image (stream ifd)
   (let ((image-width (get-ifd-value ifd +image-width-tag+))
