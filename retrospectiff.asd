@@ -1,6 +1,7 @@
 
 (asdf:defsystem :retrospectiff
     :name "retrospectiff"
+    :description "A library for reading and writing TIFF images"
     :author "Cyrus Harmon <ch-lisp@bobobeach.com>"
     :version "0.1.0"
     :licence "BSD"
