@@ -7,6 +7,7 @@
   :licence "BSD"
   :serial t
   :depends-on (com.gigamonkeys.binary-data
+               flexi-streams
                ieee-floats)
   :components
   ((:static-file "COPYRIGHT")

@@ -32,6 +32,7 @@
   (:use #:cl
         #:com.gigamonkeys.binary-data
         #:com.gigamonkeys.binary-data.common-datatypes)
+  (:import-from #:flexi-streams #:make-in-memory-input-stream)
   (:nicknames #:tiff)
   (:shadow #:rational #:numerator #:denominator)
   (:export #:read-tiff-stream
