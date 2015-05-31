@@ -565,7 +565,7 @@
 			   (aref decoded decoded-offset))
 		     (incf decoded-offset))
 		    (16
-		     (let ((data-offset (+ pixoff (ash k 1))))
+		     (let ((data-offset pixoff))
 		       (ecase *byte-order*
 			 (:big-endian
 			  (setf (aref array data-offset)
