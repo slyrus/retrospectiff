@@ -383,26 +383,20 @@
                              compression)
   (file-position stream strip-offset)
   (let ((compressed (read-bytes stream strip-byte-count)))
-    (let ((stream (make-in-memory-input-stream (funcall (find-compression-decoder compression) compressed))))
-      (ecase bits-per-sample
-	(1
-	 (let* ((bytes-per-row (1+ (ash (1- width) -3)))
-		(strip-length (/ strip-byte-count bytes-per-row)))
-	   (loop for i from start-row below (+ start-row strip-length)
-	      do
-	      (let ((rowoff (* i bytes-per-row)))
-		(read-sequence array stream
-			       :start rowoff
-			       :end (+ rowoff bytes-per-row))))))
-	(8
-	 (let ((strip-length (/ strip-byte-count width))
-	       (bytes-per-pixel 1))
-	   (loop for i from start-row below (+ start-row strip-length)
-	      do
-	      (let ((rowoff (* i width bytes-per-pixel)))
-		(read-sequence array stream
-			       :start rowoff
-			       :end (+ rowoff width))))))))))
+    (let ((stream (flexi-streams:make-in-memory-input-stream
+                   (funcall (find-compression-decoder compression) compressed))))
+      (let ((bytes-per-row
+             (ecase bits-per-sample
+               (1 (1+ (ash (1- width) -3)))
+               (4 (1+ (ash (1- width) -1)))
+               (8 width))))
+        (let ((strip-length (/ strip-byte-count bytes-per-row)))
+          (loop for i from start-row below (+ start-row strip-length)
+             do
+               (let ((rowoff (* i bytes-per-row)))
+                 (read-sequence array stream
+                                :start rowoff
+                                :end (+ rowoff bytes-per-row)))))))))
 
 (defun read-grayscale-image (stream ifd)
   (let ((image-width (get-ifd-value ifd +image-width-tag+))
@@ -432,6 +426,21 @@
                         :byte-order *byte-order*
                         :min-is-white (= photometric-interpretation
                                          +photometric-interpretation-white-is-zero+))))
+      (4
+       (let ((data (make-array (ceiling (* image-width image-length) 2))))
+         (loop for strip-offset across strip-offsets
+            for strip-byte-count across strip-byte-counts
+            for row-offset = 0 then (+ row-offset rows-per-strip)
+            do (read-grayscale-strip stream data row-offset
+                                     strip-offset strip-byte-count
+                                     image-width
+                                     bits-per-sample
+                                     compression))
+         (make-instance 'tiff-image
+                        :length image-length :width image-width
+                        :bits-per-sample bits-per-sample
+                        :samples-per-pixel 1 :data data
+                        :byte-order *byte-order*)))
       (8
        (let* ((bytes-per-pixel 1)
               (data (make-array (* image-width image-length bytes-per-pixel))))
