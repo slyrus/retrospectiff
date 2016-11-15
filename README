@@ -5,7 +5,7 @@ format.
 
 The git repository can be found at:
 
-http://git.cyrusharmon.org/cgi-bin/gitweb.cgi?p=retrospectiff.git
+https://github.com/slyrus/retrospectiff
 
 There is currently no documentation, no website and no examples. But,
 to get started, check out the read-tiff-file function.
