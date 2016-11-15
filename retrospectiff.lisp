@@ -714,10 +714,9 @@
          (samples-per-pixel tiff-image-samples-per-pixel))
       image
     (let* ((num-bits-per-sample (if (typep bits-per-sample 'sequence)
-                                    (elt bits-per-sample 0)
-                                    bits-per-sample))
-           (bytes-per-pixel (* samples-per-pixel (ash num-bits-per-sample -3)))
-           (bytes-per-row (* image-width bytes-per-pixel))
+                                   (elt bits-per-sample 0)
+                                   bits-per-sample))
+           (bytes-per-row (ceiling (* image-width (* samples-per-pixel num-bits-per-sample)) 8))
            (rows-per-strip (compute-rows-per-strip image-length bytes-per-row))
            (fields (make-instance 'tiff-fields
                                   :byte-order *byte-order*
@@ -776,11 +775,11 @@
           (loop for entry in (entries ifd)
              do (incf out-of-line-data-size 
                       (ifd-entry-out-of-line-bytes entry)))
-        
+
           ;; skip one more ifd-entry
           (incf *tiff-file-offset* 12)
           (incf *tiff-file-offset* 4)
-                    
+
           ;; *file-offset* to the strip-offsets
           (add-ifd-entry
            ifd
