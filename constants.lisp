@@ -17,6 +17,7 @@
 (defconstant +resolution-unit-tag+ 296)
 (defconstant +predictor-tag+ 317)
 (defconstant +color-map-tag+ 320)
+(defconstant +jpeg-tables+ 347)
 
 (defconstant +photometric-interpretation-white-is-zero+ 0)
 (defconstant +photometric-interpretation-black-is-zero+ 1)
@@ -27,6 +28,8 @@
 
 (defconstant +no-compression+ 1)
 (defconstant +lzw-compression+ 5)
+(defconstant +old-style-jpeg-compression+ 6)
+(defconstant +jpeg-compression+ 7)
 (defconstant +packbits-compression+ #x8005)
 
 

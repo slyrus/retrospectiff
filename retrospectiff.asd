@@ -8,7 +8,8 @@
   :serial t
   :depends-on (com.gigamonkeys.binary-data
                flexi-streams
-               ieee-floats)
+               ieee-floats
+               cl-jpeg)
   :components
   ((:static-file "COPYRIGHT")
    (:static-file "README")

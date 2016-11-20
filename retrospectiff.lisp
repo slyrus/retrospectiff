@@ -153,6 +153,10 @@
                (4 'long-ifd-entry)
                (5 'rational-ifd-entry)
                (6 'sbyte-ifd-entry)
+               ;;
+               ;; this next type (7) is really the UNKNOWN type, but
+               ;; for now we read it as bytes
+               (7 'byte-ifd-entry)
                (8 'sshort-ifd-entry)
                (9 'slong-ifd-entry)
                (10 'srational-ifd-entry)
@@ -361,10 +365,11 @@
     (read-sequence buf stream)
     buf))
 
-(defvar *compressions*
+(defparameter *compressions*
   (list (list +no-compression+ #'identity #'identity)
 	(list +packbits-compression+ #'packbits-decode #'packbits-encode)
-	(list +lzw-compression+ #'lzw-decode #'lzw-encode)))
+	(list +lzw-compression+ #'lzw-decode #'lzw-encode)
+        (list +jpeg-compression+ #'jpeg-decode nil)))
 
 (defun find-compression-decoder (compression)
   (let ((compression (or compression +no-compression+)))
@@ -406,7 +411,10 @@
         (photometric-interpretation (get-ifd-value ifd +photometric-interpretation-tag+))
         (strip-offsets (get-ifd-values ifd +strip-offsets-tag+))
         (rows-per-strip (get-ifd-value ifd +rows-per-strip-tag+))
-        (strip-byte-counts (get-ifd-values ifd +strip-byte-counts-tag+)))
+        (strip-byte-counts (get-ifd-values ifd +strip-byte-counts-tag+))
+        (jpeg-tables (get-ifd-value ifd +jpeg-tables+)))
+    (when jpeg-tables
+      (error "got jpeg tables"))
     (case bits-per-sample
       (1
        (let* ((bytes-per-row (1+ (ash (1- image-width) -3)))
