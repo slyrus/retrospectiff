@@ -32,6 +32,7 @@
 
 (defun jpeg-encode (raw-vector)
   (let ((stream (flexi-streams:make-in-memory-input-stream raw-vector)))
+    (declare (ignore stream))
     (error "JPEG encoding not supported yet!")))
 
 (defun read-jpeg-tables (jpeg-image-info)
