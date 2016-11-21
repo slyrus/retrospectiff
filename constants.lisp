@@ -30,6 +30,7 @@
 (defconstant +lzw-compression+ 5)
 (defconstant +old-style-jpeg-compression+ 6)
 (defconstant +jpeg-compression+ 7)
+(defconstant +deflate-compression+ 8)
 (defconstant +packbits-compression+ #x8005)
 
 

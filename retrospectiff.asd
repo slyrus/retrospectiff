@@ -9,7 +9,8 @@
   :depends-on (com.gigamonkeys.binary-data
                flexi-streams
                ieee-floats
-               cl-jpeg)
+               cl-jpeg
+               deflate)
   :components
   ((:static-file "COPYRIGHT")
    (:static-file "README")

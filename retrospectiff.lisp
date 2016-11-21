@@ -369,7 +369,8 @@
   (list (list +no-compression+ #'identity #'identity)
 	(list +packbits-compression+ 'packbits-decode 'packbits-encode)
 	(list +lzw-compression+ 'lzw-decode 'lzw-encode)
-        (list +jpeg-compression+ 'jpeg-decode nil)))
+        (list +jpeg-compression+ 'jpeg-decode nil)
+        (list +deflate-compression+ 'deflate-decode nil)))
 
 (defun find-compression-decoder (compression)
   (let ((compression (or compression +no-compression+)))
