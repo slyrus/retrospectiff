@@ -19,6 +19,7 @@
    (:cl-source-file "bit-array")
    (:cl-source-file "lzw")
    (:cl-source-file "jpeg")
+   (:cl-source-file "deflate")
    (:cl-source-file "packbits")
    (:cl-source-file "constants")
    (:cl-source-file "retrospectiff")))
