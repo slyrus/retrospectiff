@@ -477,46 +477,47 @@
                         :samples-per-pixel 1 :data data
                         :byte-order *byte-order*)))
       (t
-       (unless (eql bits-per-sample 8)
-         (error "I can only read 8-bit grayscale images at the moment."))))))
+       (error "I can only read 8-, 4-, and 1-bit grayscale images at the moment.")))))
 
-(defun read-rgb-strip (stream array start-row strip-offset
+(defun read-rgb-strip (stream image-info array start-row strip-offset
                        strip-byte-count width bits-per-sample samples-per-pixel
                        bytes-per-pixel compression)
   (file-position stream strip-offset)
-  (let ((compressed (read-bytes stream strip-byte-count)))
-    (let ((decoded (funcall (find-compression-decoder compression) compressed))
-	  (decoded-offset 0))
-      (let ((strip-length (/ (length decoded) width bytes-per-pixel))
-	    (bytes-per-sample (/ bytes-per-pixel samples-per-pixel)))
-	(loop for i from start-row below (+ start-row strip-length)
-	   do
-	   (let ((rowoff (* i width bytes-per-pixel)))
-	     (loop for j below width
-		do
-		(let ((pixoff (+ rowoff (* bytes-per-pixel j))))
-		  (loop for k below samples-per-pixel
-		     for bits across bits-per-sample
-		     do
-		     (case bits
-		       (8
-			(setf (aref array (+ pixoff (* k bytes-per-sample)))
-			      (aref decoded decoded-offset))
-			(incf decoded-offset))
-		       (16
-		     (let ((data-offset (+ pixoff (ash k 1))))
-		       (ecase *byte-order*
-			 (:big-endian
-			  (setf (aref array data-offset)
-				(aref decoded decoded-offset)
-				(aref array (1+ data-offset))
-				(aref decoded (1+ decoded-offset))))
-			 (:little-endian
-			  (setf (aref array (1+ data-offset))
-				(aref decoded decoded-offset)
-				(aref array data-offset)
-				(aref decoded (1+ decoded-offset)))))
-		     (incf decoded-offset 2)))))))))))))
+  (let ((compressed-bytes (read-bytes stream strip-byte-count)))
+    (let ((decompressed-bytes (apply (find-compression-decoder compression) compressed-bytes
+                                     (when image-info
+                                       (list image-info)))))
+      (let ((decoded-offset 0))
+        (let ((strip-length (/ (length decompressed-bytes) width bytes-per-pixel))
+              (bytes-per-sample (/ bytes-per-pixel samples-per-pixel)))
+          (loop for i from start-row below (+ start-row strip-length)
+             do
+               (let ((rowoff (* i width bytes-per-pixel)))
+                 (loop for j below width
+                    do
+                      (let ((pixoff (+ rowoff (* bytes-per-pixel j))))
+                        (loop for k below samples-per-pixel
+                           for bits across bits-per-sample
+                           do
+                             (case bits
+                               (8
+                                (setf (aref array (+ pixoff (* k bytes-per-sample)))
+                                      (aref decompressed-bytes decoded-offset))
+                                (incf decoded-offset))
+                               (16
+                                (let ((data-offset (+ pixoff (ash k 1))))
+                                  (ecase *byte-order*
+                                    (:big-endian
+                                     (setf (aref array data-offset)
+                                           (aref decompressed-bytes decoded-offset)
+                                           (aref array (1+ data-offset))
+                                           (aref decompressed-bytes (1+ decoded-offset))))
+                                    (:little-endian
+                                     (setf (aref array (1+ data-offset))
+                                           (aref decompressed-bytes decoded-offset)
+                                           (aref array data-offset)
+                                           (aref decompressed-bytes (1+ decoded-offset)))))
+                                  (incf decoded-offset 2))))))))))))))
 
 (defun read-rgb-image (stream ifd)
   (let ((image-width (get-ifd-value ifd +image-width-tag+))
@@ -528,8 +529,12 @@
         (strip-byte-counts (get-ifd-values ifd +strip-byte-counts-tag+))
         (compression (get-ifd-value ifd +compression-tag+))
         (planar-configuration (get-ifd-value ifd +planar-configuration-tag+))
-        (predictor (get-ifd-value ifd +predictor-tag+)))
+        (predictor (get-ifd-value ifd +predictor-tag+))
+        image-info
+        (jpeg-tables (get-ifd-values ifd +jpeg-tables+)))
     (declare (ignore planar-configuration))
+    (when jpeg-tables
+      (setf image-info (make-instance 'jpeg-image-info :jpeg-tables jpeg-tables)))
     ;; FIXME
     ;; 1. we need to support predictors for lzw encoded images.
     ;; 2. Presumably we'll want planar images as well at some point.
@@ -544,6 +549,7 @@
          for strip-byte-count across strip-byte-counts
          for row-offset = 0 then (+ row-offset rows-per-strip)
          do (read-rgb-strip stream
+                            image-info
                             data
                             row-offset
                             strip-offset
