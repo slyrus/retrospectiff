@@ -367,9 +367,9 @@
 
 (defparameter *compressions*
   (list (list +no-compression+ #'identity #'identity)
-	(list +packbits-compression+ #'packbits-decode #'packbits-encode)
-	(list +lzw-compression+ #'lzw-decode #'lzw-encode)
-        (list +jpeg-compression+ #'jpeg-decode nil)))
+	(list +packbits-compression+ 'packbits-decode 'packbits-encode)
+	(list +lzw-compression+ 'lzw-decode 'lzw-encode)
+        (list +jpeg-compression+ 'jpeg-decode nil)))
 
 (defun find-compression-decoder (compression)
   (let ((compression (or compression +no-compression+)))
@@ -378,7 +378,14 @@
 	  decoder
 	  (error "Compression not supported: ~a" compression)))))
 
+(defclass image-info () ())
+
+(defclass jpeg-image-info (image-info)
+  ((jpeg-tables :initarg :jpeg-tables :accessor jpeg-tables)
+   (jpeg-image :initarg :jpeg-image :accessor jpeg-image :initform nil)))
+
 (defun read-grayscale-strip (stream
+                             image-info
                              array
                              start-row
                              strip-offset
@@ -387,21 +394,24 @@
                              bits-per-sample
                              compression)
   (file-position stream strip-offset)
-  (let ((compressed (read-bytes stream strip-byte-count)))
-    (let ((stream (flexi-streams:make-in-memory-input-stream
-                   (funcall (find-compression-decoder compression) compressed))))
-      (let ((bytes-per-row
-             (ecase bits-per-sample
-               (1 (1+ (ash (1- width) -3)))
-               (4 (1+ (ash (1- width) -1)))
-               (8 width))))
-        (let ((strip-length (/ strip-byte-count bytes-per-row)))
-          (loop for i from start-row below (+ start-row strip-length)
-             do
-               (let ((rowoff (* i bytes-per-row)))
-                 (read-sequence array stream
-                                :start rowoff
-                                :end (+ rowoff bytes-per-row)))))))))
+  (let ((compressed-bytes (read-bytes stream strip-byte-count)))
+    (let ((decompressed-bytes (apply (find-compression-decoder compression) compressed-bytes
+                                     (when image-info
+                                       (list image-info)))))
+      (let ((stream (flexi-streams:make-in-memory-input-stream decompressed-bytes)))
+        (let ((bytes-per-row
+               (ecase bits-per-sample
+                 (1 (1+ (ash (1- width) -3)))
+                 (4 (1+ (ash (1- width) -1)))
+                 (8 width))))
+          (let ((strip-length (ceiling (length decompressed-bytes) bytes-per-row)))
+            (let ((end-row (+ start-row strip-length)))
+              (loop for i from start-row below end-row
+                 do
+                   (let ((rowoff (* i bytes-per-row)))
+                     (read-sequence array stream
+                                    :start rowoff
+                                    :end (+ rowoff bytes-per-row)))))))))))
 
 (defun read-grayscale-image (stream ifd)
   (let ((image-width (get-ifd-value ifd +image-width-tag+))
@@ -412,9 +422,10 @@
         (strip-offsets (get-ifd-values ifd +strip-offsets-tag+))
         (rows-per-strip (get-ifd-value ifd +rows-per-strip-tag+))
         (strip-byte-counts (get-ifd-values ifd +strip-byte-counts-tag+))
-        (jpeg-tables (get-ifd-value ifd +jpeg-tables+)))
+        image-info
+        (jpeg-tables (get-ifd-values ifd +jpeg-tables+)))
     (when jpeg-tables
-      (error "got jpeg tables"))
+      (setf image-info (make-instance 'jpeg-image-info :jpeg-tables jpeg-tables)))
     (case bits-per-sample
       (1
        (let* ((bytes-per-row (1+ (ash (1- image-width) -3)))
@@ -422,7 +433,7 @@
          (loop for strip-offset across strip-offsets
             for strip-byte-count across strip-byte-counts
             for row-offset = 0 then (+ row-offset rows-per-strip)
-            do (read-grayscale-strip stream data row-offset
+            do (read-grayscale-strip stream image-info data row-offset
                                      strip-offset strip-byte-count
                                      image-width
                                      bits-per-sample
@@ -439,7 +450,7 @@
          (loop for strip-offset across strip-offsets
             for strip-byte-count across strip-byte-counts
             for row-offset = 0 then (+ row-offset rows-per-strip)
-            do (read-grayscale-strip stream data row-offset
+            do (read-grayscale-strip stream image-info data row-offset
                                      strip-offset strip-byte-count
                                      image-width
                                      bits-per-sample
@@ -455,7 +466,7 @@
          (loop for strip-offset across strip-offsets
             for strip-byte-count across strip-byte-counts
             for row-offset = 0 then (+ row-offset rows-per-strip)
-            do (read-grayscale-strip stream data row-offset
+            do (read-grayscale-strip stream image-info data row-offset
                                      strip-offset strip-byte-count
                                      image-width
                                      bits-per-sample
