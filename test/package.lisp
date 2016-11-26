@@ -2,4 +2,9 @@
 ;;; See COPYRIGHT file for details.
 
 (cl:defpackage :retrospectiff-test
-  (:use #:cl #:retrospectiff))
+  (:use #:cl #:retrospectiff #:fiveam))
+
+(cl:in-package #:retrospectiff-test)
+
+(def-suite :retrospectiff)
+

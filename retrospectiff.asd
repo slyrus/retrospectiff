@@ -22,4 +22,20 @@
    (:cl-source-file "deflate")
    (:cl-source-file "packbits")
    (:cl-source-file "constants")
-   (:cl-source-file "retrospectiff")))
+   (:cl-source-file "retrospectiff"))
+  :in-order-to ((test-op (test-op :retrospectiff/test))))
+
+(asdf:defsystem :retrospectiff/test
+  :name "retrospectiff/tests"
+  :description "test library for retrospectiff"
+  :author "Cyrus Harmon <ch-lisp@bobobeach.com>"
+  :licence "BSD"
+  :default-component-class cl-source-file
+  :depends-on (retrospectiff fiveam)
+  :components
+  ((:module :test
+            :serial t
+            :components ((:file "package")
+                         (:file "retrospectiff-test"))))
+  :perform (test-op (o c)
+                    (uiop:symbol-call :fiveam '#:run! :retrospectiff)))

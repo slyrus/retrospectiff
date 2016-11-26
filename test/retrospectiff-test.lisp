@@ -1,13 +1,58 @@
-;;; Copyright (c) 2011 Cyrus Harmon, All rights reserved.
+;;; Copyright (c) 2016 Cyrus Harmon, All rights reserved.
 ;;; See COPYRIGHT file for details.
 
-(in-package #:retrospectiff-test)
+(cl:in-package #:retrospectiff-test)
+
+(in-suite :retrospectiff)
 
 ;;; TIFF reading
 
-(defparameter *snow-image* (read-tiff-file "test/images/snow.tiff"))
-(defparameter *snow-lzw-image* (read-tiff-file "test/images/snow-lzw.tiff"))
+(defun test-image (filename)
+  (reduce #'merge-pathnames (list filename "test/images/")
+          :from-end t
+          :initial-value (asdf:component-pathname
+                          (asdf:find-system "retrospectiff"))))
 
+(defun output-image (filename)
+  (reduce #'merge-pathnames (list filename "test/output/")
+          :from-end t
+          :initial-value (asdf:component-pathname
+                          (asdf:find-system "retrospectiff"))))
+
+(ensure-directories-exist (output-image ""))
+
+(test tiff-read-and-write-simple-tiff-rgb-file
+  (let* ((img (read-tiff-file (test-image "blocks.tiff"))))
+    (let ((out (output-image "blocks.tiff")))
+      (is (equal out (write-tiff-file out img :if-exists :supersede)))
+      (let ((input-img (read-tiff-file out)))
+        (is (equalp (tiff-image-data img)
+                    (tiff-image-data input-img)))))))
+
+(test tiff-read-and-write-simple-tiff-gray-file
+  (let* ((img (read-tiff-file (test-image "blocks-gray.tiff"))))
+    (let ((out (output-image "blocks-gray.tiff")))
+      (is (equal out (write-tiff-file out img :if-exists :supersede)))
+      (let ((input-img (read-tiff-file out)))
+        (is (equalp (tiff-image-data img)
+                    (tiff-image-data input-img)))))))
+
+#+nil
+(test tiff-read-and-write-simple-tiff-gray-file
+  (let* ((img (read-tiff-file (test-image "truck-gray-none.tiff"))))
+    (let ((out (output-image "truck-gray-from-none.tiff")))
+      (is (equal out (write-tiff-file out img :if-exists :supersede)))
+      (let ((input-img (read-tiff-file out)))
+        (is (equalp (tiff-image-data img)
+                    (tiff-image-data input-img)))))))
+
+#+nil
+(defparameter *snow-image* (read-tiff-file (test-image "snow.tiff")))
+
+#+nil
+(defparameter *snow-lzw-image* (read-tiff-file (test-image "snow-lzw.tiff")))
+
+#+nil
 (assert (equalp (tiff-image-data *snow-image*)
                 (tiff-image-data *snow-lzw-image*)))
 
