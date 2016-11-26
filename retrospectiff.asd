@@ -12,9 +12,7 @@
                cl-jpeg
                deflate)
   :components
-  ((:static-file "COPYRIGHT")
-   (:static-file "README")
-   (:cl-source-file "package")
+  ((:cl-source-file "package")
    (:cl-source-file "util")
    (:cl-source-file "bit-array")
    (:cl-source-file "lzw")
