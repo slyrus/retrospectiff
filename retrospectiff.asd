@@ -3,7 +3,7 @@
   :name "retrospectiff"
   :description "A library for reading and writing TIFF images"
   :author "Cyrus Harmon <ch-lisp@bobobeach.com>"
-  :version "0.1.0"
+  :version "0.1.1"
   :licence "BSD"
   :serial t
   :depends-on (com.gigamonkeys.binary-data
