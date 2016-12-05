@@ -19,6 +19,9 @@
 (defconstant +color-map-tag+ 320)
 (defconstant +jpeg-tables+ 347)
 
+(defconstant +planar-configuration-chunky+ 1)
+(defconstant +planar-configuration-planar+ 2)
+
 (defconstant +photometric-interpretation-white-is-zero+ 0)
 (defconstant +photometric-interpretation-black-is-zero+ 1)
 (defconstant +photometric-interpretation-rgb+ 2)

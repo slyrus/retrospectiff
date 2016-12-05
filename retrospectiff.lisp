@@ -529,56 +529,63 @@
         (strip-offsets (get-ifd-values ifd +strip-offsets-tag+))
         (strip-byte-counts (get-ifd-values ifd +strip-byte-counts-tag+))
         (compression (get-ifd-value ifd +compression-tag+))
-        (planar-configuration (get-ifd-value ifd +planar-configuration-tag+))
+        ;; default planar-configuration is +planar-configuration-chunky+
+        (planar-configuration (or (get-ifd-value ifd +planar-configuration-tag+)
+                                  +planar-configuration-chunky+))
         (predictor (get-ifd-value ifd +predictor-tag+))
         image-info
         (jpeg-tables (get-ifd-values ifd +jpeg-tables+)))
-    (declare (ignore planar-configuration))
+
     (when jpeg-tables
       (setf image-info (make-instance 'jpeg-image-info :jpeg-tables jpeg-tables)))
     ;; FIXME
     ;; 1. we need to support predictors for lzw encoded images.
     ;; 2. Presumably we'll want planar images as well at some point.
-    (let* ((bytes-per-pixel
-            (* samples-per-pixel
-               (1+ (ash (1- (apply #'max
-                                   (map 'list #'identity
-                                        bits-per-sample)))
-                        -3))))
-           (data (make-array (* image-width image-length bytes-per-pixel))))
-      (loop for strip-offset across strip-offsets
-         for strip-byte-count across strip-byte-counts
-         for row-offset = 0 then (+ row-offset rows-per-strip)
-         do (read-rgb-strip stream
-                            image-info
-                            data
-                            row-offset
-                            strip-offset
-                            strip-byte-count
-                            image-width
-                            bits-per-sample
-                            samples-per-pixel
-                            bytes-per-pixel
-                            compression))
-      (case predictor
-        (#.+horizontal-differencing+
-         (loop for i below image-length
-            do 
-              (loop for j from 1 below image-width
-                 do 
-                   (let ((offset (+ (* i image-width samples-per-pixel)
-                                    (* samples-per-pixel j))))
-                     (loop for k below samples-per-pixel
-                        do (setf (aref data (+ offset k))
-                                 (logand
-                                  (+ (aref data (+ offset k))
-                                     (aref data (- (+ offset k) samples-per-pixel)))
-                                  #xff))))))))
-      (make-instance 'tiff-image
-                     :length image-length :width image-width
-                     :bits-per-sample bits-per-sample
-                     :samples-per-pixel samples-per-pixel
-                     :data data :byte-order *byte-order*))))
+    (case planar-configuration
+      (#.+planar-configuration-chunky+
+       (let* ((bytes-per-pixel
+               (* samples-per-pixel
+                  (1+ (ash (1- (apply #'max
+                                      (map 'list #'identity
+                                           bits-per-sample)))
+                           -3))))
+              (data (make-array (* image-width image-length bytes-per-pixel))))
+         (loop for strip-offset across strip-offsets
+            for strip-byte-count across strip-byte-counts
+            for row-offset = 0 then (+ row-offset rows-per-strip)
+            do (read-rgb-strip stream
+                               image-info
+                               data
+                               row-offset
+                               strip-offset
+                               strip-byte-count
+                               image-width
+                               bits-per-sample
+                               samples-per-pixel
+                               bytes-per-pixel
+                               compression))
+         
+         (case predictor
+           (#.+horizontal-differencing+
+            (loop for i below image-length
+               do 
+                 (loop for j from 1 below image-width
+                    do 
+                      (let ((offset (+ (* i image-width samples-per-pixel)
+                                       (* samples-per-pixel j))))
+                        (loop for k below samples-per-pixel
+                           do (setf (aref data (+ offset k))
+                                    (logand
+                                     (+ (aref data (+ offset k))
+                                        (aref data (- (+ offset k) samples-per-pixel)))
+                                     #xff))))))))
+         (make-instance 'tiff-image
+                        :length image-length :width image-width
+                        :bits-per-sample bits-per-sample
+                        :samples-per-pixel samples-per-pixel
+                        :data data :byte-order *byte-order*)))
+      (t
+       (error "Planar Configuration ~A not supported." planar-configuration)))))
 
 (defun read-indexed-strip (stream array start-row strip-offset
                            strip-byte-count width bits-per-sample
