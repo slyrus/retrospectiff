@@ -520,6 +520,44 @@
                                            (aref decompressed-bytes (1+ decoded-offset)))))
                                   (incf decoded-offset 2))))))))))))))
 
+(defun read-planar-rgb-strip (stream image-info array start-row strip-offset
+                              strip-byte-count width plane-bits-per-sample samples-per-pixel
+                              bytes-per-pixel compression plane)
+  (file-position stream strip-offset)
+  (let ((compressed-bytes (read-bytes stream strip-byte-count)))
+    (let* ((decompressed-bytes (apply (find-compression-decoder compression) compressed-bytes
+                                      (when image-info
+                                        (list image-info))))
+           (decoded-offset 0)
+           (bytes-per-sample (/ bytes-per-pixel samples-per-pixel))
+           (strip-length (/ (length decompressed-bytes) width bytes-per-sample)))
+      (loop for i from start-row below (+ start-row strip-length)
+         do
+           (let ((rowoff (* i width bytes-per-pixel)))
+             (loop for j below width
+                do
+                  (let ((pixoff (+ rowoff (* bytes-per-pixel j)))
+                        (k plane))
+                    (case plane-bits-per-sample
+                      (8
+                       (setf (aref array (+ pixoff k))
+                             (aref decompressed-bytes decoded-offset))
+                       (incf decoded-offset))
+                      (16
+                       (let ((data-offset (+ pixoff (ash k 1))))
+                         (ecase *byte-order*
+                           (:big-endian
+                            (setf (aref array data-offset)
+                                  (aref decompressed-bytes decoded-offset)
+                                  (aref array (1+ data-offset))
+                                  (aref decompressed-bytes (1+ decoded-offset))))
+                           (:little-endian
+                            (setf (aref array (1+ data-offset))
+                                  (aref decompressed-bytes decoded-offset)
+                                  (aref array data-offset)
+                                  (aref decompressed-bytes (1+ decoded-offset)))))
+                         (incf decoded-offset 2)))))))))))
+
 (defun read-rgb-image (stream ifd)
   (let ((image-width (get-ifd-value ifd +image-width-tag+))
         (image-length (get-ifd-value ifd +image-length-tag+))
@@ -564,6 +602,57 @@
                                samples-per-pixel
                                bytes-per-pixel
                                compression))
+         
+         (case predictor
+           (#.+horizontal-differencing+
+            (loop for i below image-length
+               do 
+                 (loop for j from 1 below image-width
+                    do 
+                      (let ((offset (+ (* i image-width samples-per-pixel)
+                                       (* samples-per-pixel j))))
+                        (loop for k below samples-per-pixel
+                           do (setf (aref data (+ offset k))
+                                    (logand
+                                     (+ (aref data (+ offset k))
+                                        (aref data (- (+ offset k) samples-per-pixel)))
+                                     #xff))))))))
+         (make-instance 'tiff-image
+                        :length image-length :width image-width
+                        :bits-per-sample bits-per-sample
+                        :samples-per-pixel samples-per-pixel
+                        :data data :byte-order *byte-order*)))
+
+      (#.+planar-configuration-planar+
+       (let* ((bytes-per-pixel
+               (* samples-per-pixel
+                  (1+ (ash (1- (reduce #'max bits-per-sample))
+                           -3))))
+              (strips-per-image
+               (floor (+ image-length rows-per-strip -1) rows-per-strip))
+              (data (make-array (* image-width image-length bytes-per-pixel))))
+         (loop for plane below samples-per-pixel
+            do
+              (let ((plane-bits-per-sample (elt bits-per-sample plane)))
+                (loop for strip-offset across (subseq strip-offsets
+                                                      (* plane strips-per-image)
+                                                      (* (1+ plane) strips-per-image))
+                   for strip-byte-count across (subseq strip-byte-counts
+                                                      (* plane strips-per-image)
+                                                      (* (1+ plane) strips-per-image))
+                   for row-offset = 0 then (+ row-offset rows-per-strip)
+                   do (read-planar-rgb-strip stream
+                                             image-info
+                                             data
+                                             row-offset
+                                             strip-offset
+                                             strip-byte-count
+                                             image-width
+                                             plane-bits-per-sample
+                                             samples-per-pixel
+                                             bytes-per-pixel
+                                             compression
+                                             plane))))
          
          (case predictor
            (#.+horizontal-differencing+

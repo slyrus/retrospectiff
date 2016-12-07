@@ -69,3 +69,10 @@
                                  :element-type '(unsigned-byte 8))
         (write-sequence vector outstream)))))
 
+(test tiff-read-and-write-planar-tiff-rgb-file
+  (let* ((img (read-tiff-file (test-image "ortex.tiff"))))
+    (let ((out (output-image "ortex.tiff")))
+      (is (equal out (write-tiff-file out img :if-exists :supersede)))
+      (let ((input-img (read-tiff-file out)))
+        (is (equalp (tiff-image-data img)
+                    (tiff-image-data input-img)))))))
