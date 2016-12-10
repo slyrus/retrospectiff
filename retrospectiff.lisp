@@ -495,7 +495,7 @@
                         :samples-per-pixel 1 :data data
                         :byte-order *byte-order*)))
       (t
-       (error "I can only read 8-, 4-, and 1-bit grayscale images at the moment.")))))
+       (error "Unsupported grayscale bit depth: ~A" bits-per-sample)))))
 
 (defun read-rgb-strip (stream image-info array start-row strip-offset
                        strip-byte-count width bits-per-sample samples-per-pixel
