@@ -176,11 +176,11 @@
              (setf (fill-pointer output)
                    (incf output-byte-offset))))
       (flet ((write-decoded-vector (vector)
-               (loop for char across vector
+               (loop for code across vector
                   do 
                     (if stream
-                        (write-byte char stream)
-                        (write-code char)))))
+                        (write-byte code stream)
+                        (write-code code)))))
         (loop for code = (get-next-code)
            with old-code
            while (not (= code +end-of-information-code+))
