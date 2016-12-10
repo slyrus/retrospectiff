@@ -404,7 +404,8 @@
                (ecase bits-per-sample
                  (1 (1+ (ash (1- width) -3)))
                  (4 (1+ (ash (1- width) -1)))
-                 (8 width))))
+                 (8 width)
+                 (16 (ash width 1)))))
           (let ((strip-length (ceiling (length decompressed-bytes) bytes-per-row)))
             (let ((end-row (+ start-row strip-length)))
               (loop for i from start-row below end-row
@@ -463,6 +464,22 @@
                         :byte-order *byte-order*)))
       (8
        (let* ((bytes-per-pixel 1)
+              (data (make-array (* image-width image-length bytes-per-pixel))))
+         (loop for strip-offset across strip-offsets
+            for strip-byte-count across strip-byte-counts
+            for row-offset = 0 then (+ row-offset rows-per-strip)
+            do (read-grayscale-strip stream image-info data row-offset
+                                     strip-offset strip-byte-count
+                                     image-width
+                                     bits-per-sample
+                                     compression))
+         (make-instance 'tiff-image
+                        :length image-length :width image-width
+                        :bits-per-sample bits-per-sample
+                        :samples-per-pixel 1 :data data
+                        :byte-order *byte-order*)))
+      (16
+       (let* ((bytes-per-pixel 2)
               (data (make-array (* image-width image-length bytes-per-pixel))))
          (loop for strip-offset across strip-offsets
             for strip-byte-count across strip-byte-counts
