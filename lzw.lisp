@@ -195,10 +195,10 @@
                             (write-decoded-vector string)
                             (when old-code
                               (add-vector-to-table
-                               (concatenate 'vector
+                               (concatenate '(vector (unsigned-byte 8) *)
                                             (vector-from-code old-code)
                                             (subseq string 0 1)))))
-                          (let ((v (concatenate 'vector
+                          (let ((v (concatenate '(vector (unsigned-byte 8) *)
                                                 (vector-from-code old-code)
                                                 (subseq (vector-from-code old-code)
                                                         0 1))))
