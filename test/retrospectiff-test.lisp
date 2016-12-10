@@ -76,3 +76,29 @@
       (let ((input-img (read-tiff-file out)))
         (is (equalp (tiff-image-data img)
                     (tiff-image-data input-img)))))))
+
+(test tiff-read-and-write-16-bit-rgb-file
+  (let* ((img (read-tiff-file (test-image "horse-16-bit-rgb.tiff"))))
+    (let ((out (output-image "horse-16-bit-rgb.tiff")))
+      (is (equal out (write-tiff-file out img :if-exists :supersede)))
+      (let ((input-img (read-tiff-file out)))
+        (is (equalp (tiff-image-data img)
+                    (tiff-image-data input-img)))))))
+
+(test tiff-read-and-write-16-bit-rgb-file-3
+  (let* ((img (read-tiff-file (test-image "arch-16-bit-rgb.tiff"))))
+    (let ((out (output-image "arch-16-bit-rgb.tiff")))
+      (is (equal out (write-tiff-file out img :if-exists :supersede)))
+      (let ((input-img (read-tiff-file out)))
+        (is (equalp (tiff-image-data img)
+                    (tiff-image-data input-img)))))))
+
+#+nil
+(test tiff-read-and-write-16-bit-rgb-file-2
+  (let* ((img (read-tiff-file (test-image "DeltaE_16bit_gamma1.0.tif"))))
+    (let ((out (output-image "DeltaE_16bit_gamma1.0.tif")))
+      (is (equal out (write-tiff-file out img :if-exists :supersede)))
+      (let ((input-img (read-tiff-file out)))
+        (is (equalp (tiff-image-data img)
+                    (tiff-image-data input-img)))))))
+

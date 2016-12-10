@@ -508,21 +508,31 @@
                                (16
                                 (let ((data-offset (+ pixoff (ash k 1))))
                                   (ecase *byte-order*
-                                    (:big-endian
+                                    (:little-endian
                                      (setf (aref array data-offset)
                                            (aref decompressed-bytes decoded-offset)
                                            (aref array (1+ data-offset))
                                            (aref decompressed-bytes (1+ decoded-offset))))
-                                    (:little-endian
+                                    (:big-endian
                                      (setf (aref array (1+ data-offset))
                                            (aref decompressed-bytes decoded-offset)
                                            (aref array data-offset)
                                            (aref decompressed-bytes (1+ decoded-offset)))))
                                   (incf decoded-offset 2))))))))))))))
 
-(defun read-planar-rgb-strip (stream image-info array start-row strip-offset
-                              strip-byte-count width plane-bits-per-sample samples-per-pixel
-                              bytes-per-pixel compression plane)
+(defun read-planar-rgb-strip (stream
+                              image-info
+                              array
+                              start-row
+                              strip-offset
+                              strip-byte-count
+                              image-length
+                              image-width
+                              plane-bits-per-sample
+                              samples-per-pixel
+                              bytes-per-pixel
+                              compression
+                              plane)
   (file-position stream strip-offset)
   (let ((compressed-bytes (read-bytes stream strip-byte-count)))
     (let* ((decompressed-bytes (apply (find-compression-decoder compression) compressed-bytes
@@ -530,11 +540,48 @@
                                         (list image-info))))
            (decoded-offset 0)
            (bytes-per-sample (/ bytes-per-pixel samples-per-pixel))
-           (strip-length (/ (length decompressed-bytes) width bytes-per-sample)))
+           (strip-length (/ (length decompressed-bytes) image-width bytes-per-sample)))
+
+      (case plane-bits-per-sample
+        (8
+         (let ((darray (make-array (list image-length image-width samples-per-pixel)
+                                   :displaced-to array
+                                   :element-type '(unsigned-byte 8))))
+           (loop for i from start-row below (+ start-row strip-length)
+              do
+                (loop for j below image-width
+                   do
+                     (setf (aref darray i j plane)
+                           (aref decompressed-bytes decoded-offset))
+                     (incf decoded-offset)))))
+        (16
+         (let ((darray (make-array (list image-length image-width samples-per-pixel)
+                                   :displaced-to array
+                                   :element-type '(unsigned-byte 16))))
+           (loop for i from start-row below (+ start-row strip-length)
+              do
+                (loop for j below image-width
+                   do
+                     (dpb (aref decompressed-bytes decoded-offset)
+                          (byte 8 8)
+                          (aref darray i j plane))
+                     (dpb (aref decompressed-bytes (incf decoded-offset))
+                          (byte 0 8)
+                          (aref darray i j plane))
+                     (incf decoded-offset)
+                          
+                     #+nil
+                     (progn
+                       (setf (aref darray i j plane)
+                             (+ (ash (aref decompressed-bytes decoded-offset) 8)
+                                (aref decompressed-bytes (incf decoded-offset))))
+                       (incf decoded-offset)))))))
+      
+      #+nil
       (loop for i from start-row below (+ start-row strip-length)
          do
-           (let ((rowoff (* i width bytes-per-pixel)))
-             (loop for j below width
+           (let ((rowoff (* i image-width bytes-per-pixel)))
+             (loop for j below image-width
                 do
                   (let ((pixoff (+ rowoff (* bytes-per-pixel j)))
                         (k plane))
@@ -624,13 +671,19 @@
                         :data data :byte-order *byte-order*)))
 
       (#.+planar-configuration-planar+
-       (let* ((bytes-per-pixel
-               (* samples-per-pixel
-                  (1+ (ash (1- (reduce #'max bits-per-sample))
-                           -3))))
+       (let* ((bytes-per-sample
+               (1+ (ash (1- (reduce #'max bits-per-sample))
+                        -3)))
+              (bytes-per-pixel
+               (* samples-per-pixel bytes-per-sample))
               (strips-per-image
                (floor (+ image-length rows-per-strip -1) rows-per-strip))
-              (data (make-array (* image-width image-length bytes-per-pixel))))
+              (data
+               (ecase (reduce #'max bits-per-sample)
+                 (8 (make-array (* image-width image-length bytes-per-pixel)
+                                :element-type '(unsigned-byte 8)))
+                 (16 (make-array (* image-width image-length bytes-per-pixel)
+                                 :element-type '(unsigned-byte 16))))))
          (loop for plane below samples-per-pixel
             do
               (let ((plane-bits-per-sample (elt bits-per-sample plane)))
@@ -638,8 +691,8 @@
                                                       (* plane strips-per-image)
                                                       (* (1+ plane) strips-per-image))
                    for strip-byte-count across (subseq strip-byte-counts
-                                                      (* plane strips-per-image)
-                                                      (* (1+ plane) strips-per-image))
+                                                       (* plane strips-per-image)
+                                                       (* (1+ plane) strips-per-image))
                    for row-offset = 0 then (+ row-offset rows-per-strip)
                    do (read-planar-rgb-strip stream
                                              image-info
@@ -647,6 +700,7 @@
                                              row-offset
                                              strip-offset
                                              strip-byte-count
+                                             image-length
                                              image-width
                                              plane-bits-per-sample
                                              samples-per-pixel
