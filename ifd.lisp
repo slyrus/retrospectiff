@@ -1,5 +1,14 @@
 
-(in-package :retrospectiff)
+(in-package :retrospectiff.ifd)
+
+(defun get-ifd-values (ifd key)
+  (let ((field (find key ifd :key 'tag :test '=)))
+    (when field
+      (data field))))
+
+(defun get-ifd-value (ifd key)
+  (let ((values (get-ifd-values ifd key)))
+    (when values (elt values 0))))
 
 (defun add-ifd-entry (ifd entry)
   (push entry (entries ifd))

@@ -1,8 +1,5 @@
 
-(in-package :retrospectiff)
-
-(defparameter *byte-order* :big-endian)
-(defvar *tiff-file-offset*)
+(in-package :retrospectiff.binary-types)
 
 ;;; Perhaps the next few types should be moved to a
 ;;; binary-data-extensions file or some such?
@@ -306,30 +303,6 @@
 (defmethod read-value :around ((type (eql 'tiff)) stream &key)
   (let (*byte-order*)
     (call-next-method)))
-
-
-(defclass tiff-image ()
-  ((length :accessor tiff-image-length :initarg :length)
-   (width :accessor tiff-image-width :initarg :width)
-   (bits-per-sample :accessor tiff-image-bits-per-sample :initarg :bits-per-sample)
-   (samples-per-pixel :accessor tiff-image-samples-per-pixel
-                      :initarg :samples-per-pixel
-                      :initform nil)
-   (data :accessor tiff-image-data :initarg :data)
-   (byte-order :accessor tiff-image-byte-order :initarg :byte-order)
-   (color-map :accessor tiff-image-color-map :initarg :color-map :initform nil)
-   (min-is-white :accessor tiff-image-min-is-white :initarg :min-is-white
-                 :initform nil)))
-
-
-(defun get-ifd-values (ifd key)
-  (let ((field (find key ifd :key 'tag :test '=)))
-    (when field
-      (data field))))
-
-(defun get-ifd-value (ifd key)
-  (let ((values (get-ifd-values ifd key)))
-    (when values (elt values 0))))
 
 (defun read-bytes (stream count)
   (let ((buf (make-array count :element-type '(unsigned-byte 8))))
