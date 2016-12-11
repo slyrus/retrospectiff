@@ -424,6 +424,7 @@
         (strip-offsets (get-ifd-values ifd +strip-offsets-tag+))
         (rows-per-strip (get-ifd-value ifd +rows-per-strip-tag+))
         (strip-byte-counts (get-ifd-values ifd +strip-byte-counts-tag+))
+        (predictor (get-ifd-value ifd +predictor-tag+))
         image-info
         (jpeg-tables (get-ifd-values ifd +jpeg-tables+)))
     (when jpeg-tables
@@ -473,6 +474,19 @@
                                      image-width
                                      bits-per-sample
                                      compression))
+         (case predictor
+           (#.+horizontal-differencing+
+            (loop for i below image-length
+               do
+                 (loop for j from 1 below image-width
+                    do
+                      (let ((offset (+ (* i image-width) j)))
+                        (setf (aref data offset)
+                         (logand
+                          (+ (aref data offset)
+                             (aref data (1- offset)))
+                          #xff)))))))
+
          (make-instance 'tiff-image
                         :length image-length :width image-width
                         :bits-per-sample bits-per-sample
@@ -489,6 +503,41 @@
                                      image-width
                                      bits-per-sample
                                      compression))
+
+         (case predictor
+           (#.+horizontal-differencing+
+            (loop for i below image-length
+               do
+                 (loop for j from 1 below image-width
+                    do
+                      (let ((offset (+ (* i image-width bytes-per-pixel)
+                                       (* bytes-per-pixel j))))
+                        (ecase *byte-order*
+                          (:little-endian
+                           (let ((old (+ (aref data (- offset 2))
+                                         (ash (aref data (- offset 1)) 8))))
+                             (let ((diff (+ (aref data offset)
+                                            (ash (aref data (+ offset 1)) 8))))
+                               (let ((new (logand
+                                           (+ old diff)
+                                           #xffff)))
+                                 (setf (aref data offset)
+                                       (ldb (byte 8 0) new))
+                                 (setf (aref data (1+ offset))
+                                       (ldb (byte 8 8) new))))))
+                          (:big-endian
+                           (let ((old (+ (aref data (- offset 1))
+                                         (ash (aref data (- offset 2)) 8))))
+                             (let ((diff (+ (aref data (1+ offset))
+                                            (ash (aref data offset) 8))))
+                               (let ((new (logand
+                                           (+ old diff)
+                                           #xffff)))
+                                 (setf (aref data offset)
+                                       (ldb (byte 8 8) new))
+                                 (setf (aref data (1+ offset))
+                                       (ldb (byte 8 0) new))))))))))))
+
          (make-instance 'tiff-image
                         :length image-length :width image-width
                         :bits-per-sample bits-per-sample
@@ -964,7 +1013,7 @@
 (defun write-tiff-stream (stream obj &key byte-order)
   (let ((*byte-order* (or byte-order *byte-order*))
         (*tiff-file-offset* 0))
-    (multiple-value-bind (fields out-of-line-data-size strip-offsets strip-byte-counts) 
+    (multiple-value-bind (fields out-of-line-data-size strip-offsets strip-byte-counts)
         (make-tiff-fields obj)
       (write-value 'tiff-fields stream fields)
       (file-position stream (+ (file-position stream) out-of-line-data-size))
