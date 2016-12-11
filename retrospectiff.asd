@@ -20,6 +20,9 @@
    (:cl-source-file "deflate")
    (:cl-source-file "packbits")
    (:cl-source-file "constants")
+   (:cl-source-file "binary-types")
+   (:cl-source-file "compression")
+   (:cl-source-file "ifd")
    (:cl-source-file "retrospectiff"))
   :in-order-to ((test-op (test-op :retrospectiff/test))))
 
