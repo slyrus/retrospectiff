@@ -76,3 +76,28 @@
       (let ((input-img (read-tiff-file out)))
         (is (equalp (tiff-image-data img)
                     (tiff-image-data input-img)))))))
+
+(test tiff-read-and-write-file-8-bit-grayscale-no-compression
+  (let* ((img (read-tiff-file (test-image "window-8bit-none.tiff"))))
+    (let ((out (output-image "window-8bit-none.tiff")))
+      (is (equal out (write-tiff-file out img :if-exists :supersede)))
+      (let ((input-img (read-tiff-file out)))
+        (is (equalp (tiff-image-data img)
+                    (tiff-image-data input-img)))))))
+
+(test tiff-read-and-write-file-8-bit-grayscale-lzw-compression
+  (let* ((img (read-tiff-file (test-image "window-8bit-lzw.tiff"))))
+    (let ((out (output-image "window-8bit-none-from-lzw.tiff")))
+      (is (equal out (write-tiff-file out img :if-exists :supersede)))
+      (let ((input-img (read-tiff-file out)))
+        (is (equalp (tiff-image-data img)
+                    (tiff-image-data input-img)))))))
+
+(test tiff-read-and-write-file-8-bit-grayscale-deflate-with-predictor-compression
+  (let* ((img (read-tiff-file (test-image "window-8bit-deflate-with-predictor.tiff"))))
+    (let ((out (output-image "window-8bit-none-from-deflate-with-predictor.tiff")))
+      (is (equal out (write-tiff-file out img :if-exists :supersede)))
+      (let ((input-img (read-tiff-file out)))
+        (is (equalp (tiff-image-data img)
+                    (tiff-image-data input-img)))))))
+
