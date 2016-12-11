@@ -110,6 +110,10 @@
         #:retrospectiff.bit-array
         #:retrospectiff.binary-types
         #:retrospectiff.util)
+  (:shadowing-import-from #:retrospectiff.binary-types
+                          #:rational
+                          #:numerator
+                          #:denominator)
   (:export #:find-compression-decoder
            #:image-info
            #:jpeg-image-info))
