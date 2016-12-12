@@ -757,9 +757,18 @@
 ;;;
 ;;; FIXME! Writing indexed tiff images is broken!
 (defun write-tiff-stream (stream image &key byte-order)
+  (declare (optimize (debug 3)))
   (let ((*byte-order* (or byte-order *byte-order*))
         (*tiff-file-offset* 0))
-    (let ((obj (make-tiff-image (tiff-image-data image))))
+    ;; FIXME! The typecase below is a hack to get around the fact that
+    ;; we need to handle both a tiff-image and an opticl-core:image
+    ;; here in order to keep opticl happy. I think we need two
+    ;; write-tiff-{file,stream} flavors, one for opticl-core:image and
+    ;; one for tiff-image.
+    (let ((obj (make-tiff-image (typecase
+                                    image
+                                  (opticl-core:image image)
+                                  (t (tiff-image-data image))))))
       (multiple-value-bind (fields out-of-line-data-size strip-offsets strip-byte-counts)
           (make-tiff-fields obj)
         (write-value 'tiff-fields stream fields)
