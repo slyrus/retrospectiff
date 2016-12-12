@@ -235,22 +235,19 @@
                 do
                   (loop for j below width
                      do
-                       (loop for k below samples-per-pixel
-                          for bits across bits-per-sample
-                          do
-                            (setf (pixel* array i j)
-                                  (loop for k below samples-per-pixel
-                                     for bits across bits-per-sample
-                                     collect
-                                       (prog1
-                                           (ecase *byte-order*
-                                             (:big-endian
-                                              (+ (ash (aref array decoded-offset) 8)
-                                                 (aref array (1+ decoded-offset))))
-                                             (:little-endian
-                                              (+ (ash (aref array (1+ decoded-offset)) 8)
-                                                 (aref array decoded-offset))))
-                                         (incf decoded-offset 2))))))))))))))
+                       (setf (pixel* array i j)
+                             (loop for k below samples-per-pixel
+                                for bits across bits-per-sample
+                                collect
+                                  (prog1
+                                      (ecase *byte-order*
+                                        (:big-endian
+                                         (+ (ash (aref decompressed-bytes decoded-offset) 8)
+                                            (aref decompressed-bytes (1+ decoded-offset))))
+                                        (:little-endian
+                                         (+ (ash (aref decompressed-bytes (1+ decoded-offset)) 8)
+                                            (aref decompressed-bytes decoded-offset))))
+                                    (incf decoded-offset 2)))))))))))))
 
 (defun read-planar-rgb-strip (stream image-info array start-row strip-offset
                               strip-byte-count width plane-bits-per-sample samples-per-pixel
