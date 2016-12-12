@@ -27,6 +27,8 @@
                          do
                            (let ((current-byte (aref decompressed-bytes
                                                      (+ (* strip-row-offset bytes-per-row) byte-index))))
+                             ;; FIXME! Easy enough to support
+                             ;; lsb-to-msb here, so do that too please
                              (loop for bit from 7 downto 0
                                 for jprime from j
                                 do (setf (pixel array i jprime)
@@ -470,6 +472,224 @@
     (read-tiff-stream stream)))
 
 
+(defun make-tiff-image (image)
+  (typecase image
+
+    (16-bit-rgb-image
+     (locally
+         (declare (type 16-bit-rgb-image image))
+       (destructuring-bind (height width channels)
+           (array-dimensions image)
+         (declare (ignore channels))
+         (let ((tiff-image (make-instance 'tiff:tiff-image
+                                          :width width
+                                          :length height
+                                          :bits-per-sample '(16 16 16)
+                                          :samples-per-pixel 3
+                                          :data (make-array (* width height 3 2)))))
+           (with-accessors ((image-data tiff:tiff-image-data))
+               tiff-image
+             (loop for i below height
+                do
+                  (loop for j below width
+                     do
+                       (let ((pixoff (* 3 2 (+ (* i width) j))))
+                         (multiple-value-bind
+                               (r g b)
+                             (pixel image i j)
+                           (setf (aref image-data pixoff) (ash r -8)
+                                 (aref image-data (incf pixoff)) (logand r #xff)
+
+                                 (aref image-data (incf pixoff)) (ash g -8)
+                                 (aref image-data (incf pixoff)) (logand g #xff)
+
+                                 (aref image-data (incf pixoff)) (ash b -8)
+                                 (aref image-data (incf pixoff)) (logand b #xff)))))))
+           tiff-image))))
+
+    (16-bit-rgba-image
+     (locally
+         (declare (type 16-bit-rgba-image image))
+       (destructuring-bind (height width channels)
+           (array-dimensions image)
+         (declare (ignore channels))
+         (let ((tiff-image (make-instance 'tiff:tiff-image
+                                          :width width
+                                          :length height
+                                          :bits-per-sample '(16 16 16 16)
+                                          :samples-per-pixel 4
+                                          :data (make-array (* width height 4 2)))))
+           (with-accessors ((image-data tiff:tiff-image-data))
+               tiff-image
+             (loop for i below height
+                do
+                  (loop for j below width
+                     do
+                       (let ((pixoff (* 4 2 (+ (* i width) j))))
+                         (multiple-value-bind
+                               (r g b a)
+                             (pixel image i j)
+                           (setf (aref image-data pixoff) (ash r -8)
+                                 (aref image-data (incf pixoff)) (logand r #xff)
+
+                                 (aref image-data (incf pixoff)) (ash g -8)
+                                 (aref image-data (incf pixoff)) (logand g #xff)
+
+                                 (aref image-data (incf pixoff)) (ash b -8)
+                                 (aref image-data (incf pixoff)) (logand b #xff)
+
+                                 (aref image-data (incf pixoff)) (ash a -8)
+                                 (aref image-data (incf pixoff)) (logand a #xff)))))))
+           tiff-image))))
+
+    (8-bit-gray-image
+     (locally
+         (declare (type 8-bit-gray-image image))
+       (destructuring-bind (height width)
+           (array-dimensions image)
+         (let ((tiff-image (make-instance 'tiff:tiff-image
+                                          :width width
+                                          :length height
+                                          :bits-per-sample 8
+                                          :samples-per-pixel 1
+                                          :data (make-array (* width height)
+                                                            :initial-element 255))))
+           (with-accessors ((image-data tiff:tiff-image-data))
+               tiff-image
+             (let ((pixoff 0))
+               (loop for i below height
+                  do
+                    (loop for j below width
+                       do
+                         (setf (aref image-data pixoff) (pixel image i j))
+                         (incf pixoff)))))
+           tiff-image))))
+
+    (8-bit-rgb-image
+     (locally
+         (declare (type 8-bit-rgb-image image))
+       (destructuring-bind (height width channels)
+           (array-dimensions image)
+         (declare (ignore channels))
+         (let ((tiff-image (make-instance 'tiff:tiff-image
+                                          :width width
+                                          :length height
+                                          :bits-per-sample '(8 8 8)
+                                          :samples-per-pixel 3
+                                          :data (make-array (* width height 3)))))
+           (with-accessors ((image-data tiff:tiff-image-data))
+               tiff-image
+             (loop for i below height
+                do
+                  (loop for j below width
+                     do
+                       (let ((pixoff (* 3 (+ (* i width) j))))
+                         (multiple-value-bind
+                               (r g b)
+                             (pixel image i j)
+                           (setf (aref image-data pixoff) r
+                                 (aref image-data (incf pixoff)) g
+                                 (aref image-data (incf pixoff)) b))))))
+           tiff-image))))
+
+    (8-bit-rgba-image
+     (locally
+         (declare (type 8-bit-rgba-image image))
+       (destructuring-bind (height width channels)
+           (array-dimensions image)
+         (declare (ignore channels))
+         (let ((tiff-image (make-instance 'tiff:tiff-image
+                                          :width width
+                                          :length height
+                                          :bits-per-sample '(8 8 8 8)
+                                          :samples-per-pixel 4
+                                          :data (make-array (* width height 4)))))
+           (with-accessors ((image-data tiff:tiff-image-data))
+               tiff-image
+             (loop for i below height
+                do
+                  (loop for j below width
+                     do
+                       (let ((pixoff (* 4 (+ (* i width) j))))
+                         (multiple-value-bind
+                               (r g b a)
+                             (pixel image i j)
+                           (setf (aref image-data pixoff) r
+                                 (aref image-data (incf pixoff)) g
+                                 (aref image-data (incf pixoff)) b
+                                 (aref image-data (incf pixoff)) a))))))
+           tiff-image))))
+
+    (4-bit-gray-image
+     (locally
+         (declare (type 4-bit-gray-image image))
+       (destructuring-bind (height width)
+           (array-dimensions image)
+         (let ((tiff-image (make-instance 'tiff:tiff-image
+                                          :width width
+                                          :length height
+                                          :bits-per-sample 4
+                                          :samples-per-pixel 1
+                                          :data (make-array (* width height)
+                                                            :initial-element 15))))
+           (with-accessors ((image-data tiff:tiff-image-data))
+               tiff-image
+             (let ((byte-offset 0)
+                   (nibble 0))
+               (loop for i below height
+                  do
+                    (loop for j below width
+                       do
+                         (if (zerop nibble)
+                             (progn
+                               (setf (ldb (byte 4 4)
+                                          (aref image-data byte-offset))
+                                     (pixel image i j))
+                               (incf nibble))
+                             (progn
+                               (setf (ldb (byte 4 0)
+                                          (aref image-data byte-offset))
+                                     (pixel image i j))
+                               (setf nibble 0)
+                               (incf byte-offset)))))))
+           tiff-image))))
+
+    (1-bit-gray-image
+     (locally
+         (declare (type 1-bit-gray-image image))
+       (destructuring-bind (height width)
+           (array-dimensions image)
+         (let ((tiff-image (make-instance 'tiff:tiff-image
+                                          :width width
+                                          :length height
+                                          :bits-per-sample 1
+                                          :samples-per-pixel 1
+                                          :data (make-array (* width height)
+                                                            :initial-element 1))))
+           (with-accessors ((image-data tiff:tiff-image-data))
+               tiff-image
+             (let ((byte-offset 0)
+                   (bit-offset 0))
+               (loop for i below height
+                  do
+                    (loop for j below width
+                       do
+                         (if (< bit-offset 7)
+                             (progn
+                               (setf (ldb (byte 1 (- 7 bit-offset))
+                                          (aref image-data byte-offset))
+                                     (pixel image i j))
+                               (incf bit-offset))
+                             (progn
+                               (setf (ldb (byte 1 0)
+                                          (aref image-data byte-offset))
+                                     (pixel image i j))
+                               (setf bit-offset 0)
+                               (incf byte-offset)))))))
+           tiff-image))))
+
+    (t (error "Cannot write a TIFF image from ~A" (type-of image)))))
+
 ;;;
 ;;; The general strategy here is to:
 ;;;
@@ -490,24 +710,28 @@
 ;;; the non-inline values
 ;;;
 ;;; 7. Write the sample (strip) data
-(defun write-tiff-stream (stream obj &key byte-order)
+;;;
+;;; FIXME! Writing indexed tiff images is broken!
+(defun write-tiff-stream (stream image &key byte-order)
   (let ((*byte-order* (or byte-order *byte-order*))
         (*tiff-file-offset* 0))
-    (multiple-value-bind (fields out-of-line-data-size strip-offsets strip-byte-counts)
-        (make-tiff-fields obj)
-      (write-value 'tiff-fields stream fields)
-      (file-position stream (+ (file-position stream) out-of-line-data-size))
-      (with-accessors
-            ((image-width tiff-image-width)
-             (image-length tiff-image-length)
-             (image-data tiff-image-data))
-          obj
-        (loop for start in strip-offsets
-           for count in strip-byte-counts
-           do
-             (write-sequence (subseq image-data start
-                                     (+ start count))
-                             stream))))))
+    (let ((obj (make-tiff-image (tiff-image-data image))))
+      (multiple-value-bind (fields out-of-line-data-size strip-offsets strip-byte-counts)
+          (make-tiff-fields obj)
+        (write-value 'tiff-fields stream fields)
+        (file-position stream (+ (file-position stream) out-of-line-data-size))
+        (with-accessors
+              ((image-width tiff-image-width)
+               (image-length tiff-image-length)
+               (image-data tiff-image-data))
+            obj
+          ;; need to convert our opticl-core image into proper TIFF strippable-data
+          (loop for start in strip-offsets
+             for count in strip-byte-counts
+             do
+               (write-sequence (subseq image-data start
+                                       (+ start count))
+                               stream)))))))
 
 (defun write-tiff-file (pathname image &rest args &key (if-exists :error) &allow-other-keys)
   (with-open-file (stream pathname
