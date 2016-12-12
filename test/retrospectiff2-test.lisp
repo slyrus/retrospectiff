@@ -73,3 +73,7 @@
 (read-and-write-image-test tiff2-read-and-write-16-bit-grayscale-image
                            "window.tiff" "window.tiff")
 
+(read-and-write-image-test tiff2-read-and-write-16-bit-rgb-image
+                           "horse-16-bit.tiff" "horse-16-bit.tiff")
+
+
