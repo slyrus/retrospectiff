@@ -475,6 +475,38 @@
 (defun make-tiff-image (image)
   (typecase image
 
+    (16-bit-gray-image
+     (locally
+         (declare (type 16-bit-gray-image image))
+       (destructuring-bind (height width)
+           (array-dimensions image)
+         (let ((tiff-image (make-instance 'tiff:tiff-image
+                                          :width width
+                                          :length height
+                                          :bits-per-sample 16
+                                          :samples-per-pixel 1
+                                          :data (make-array (* width height 2)))))
+           (with-accessors ((image-data tiff:tiff-image-data))
+               tiff-image
+             (let ((pixoff 0))
+               (loop for i below height
+                  do
+                    (loop for j below width
+                       do
+                         (let ((pixval (pixel image i j)))
+                           (ecase *byte-order*
+                                   (:little-endian
+                                    (setf (aref image-data pixoff) (logand pixval #xff))
+                                    (incf pixoff)
+                                    (setf (aref image-data pixoff) (ash pixval -8))
+                                    (incf pixoff))
+                                   (:big-endian
+                                    (setf (aref image-data pixoff) (ash pixval -8))
+                                    (incf pixoff)
+                                    (setf (aref image-data pixoff) (logand pixval #xff))
+                                    (incf pixoff))))))))
+           tiff-image))))
+
     (16-bit-rgb-image
      (locally
          (declare (type 16-bit-rgb-image image))
