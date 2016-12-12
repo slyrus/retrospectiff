@@ -26,58 +26,66 @@
                       (loop for j below image-width by 8
                          for byte-index from 0
                          do
-                           (let ((current-byte (aref decompressed-bytes (+ (* strip-row-offset bytes-per-row) byte-index))))
+                           (let ((current-byte (aref decompressed-bytes
+                                                     (+ (* strip-row-offset bytes-per-row) byte-index))))
                              (loop for bit from 7 downto 0
                                 for jprime from j
                                 do (setf (pixel array i jprime)
                                          (ldb (byte 1 bit) current-byte))))))))))
 
-        (4 (let ((bytes-per-row (1+ (ash (1- image-width) -1))))
-             (let ((strip-length (ceiling (length decompressed-bytes) bytes-per-row)))
-               (let ((end-row (+ start-row strip-length)))
-                 (loop for i from start-row below end-row
-                    for strip-row-offset from 0 
-                    do
-                      (loop for j below image-width by 2
-                         for byte-index from 0
-                         do
-                           (let ((current-byte (aref decompressed-bytes (+ (* strip-row-offset bytes-per-row) byte-index))))
-                             (loop for bit below 8 by 4
-                                for jprime from j
-                                do (setf (pixel array i jprime)
-                                         (ldb (byte 4 (- 4 bit)) current-byte))))))))))
+        (4
+         (let ((bytes-per-row (1+ (ash (1- image-width) -1))))
+           (let ((strip-length (ceiling (length decompressed-bytes) bytes-per-row)))
+             (let ((end-row (+ start-row strip-length)))
+               (loop for i from start-row below end-row
+                  for strip-row-offset from 0 
+                  do
+                    (loop for j below image-width by 2
+                       for byte-index from 0
+                       do
+                         (let ((current-byte (aref decompressed-bytes
+                                                   (+ (* strip-row-offset bytes-per-row) byte-index))))
+                           (loop for bit below 8 by 4
+                              for jprime from j
+                              do (setf (pixel array i jprime)
+                                       (ldb (byte 4 (- 4 bit)) current-byte))))))))))
         
-        (8 (let ((bytes-per-row image-width))
-             (let ((strip-length (ceiling (length decompressed-bytes) bytes-per-row)))
-               (let ((end-row (+ start-row strip-length)))
-                 (loop for i from start-row below end-row
-                    for strip-row-offset from 0 
-                    do
-                      (loop for j below image-width
-                         for byte-index from 0
-                         do
-                           (let ((current-byte (aref decompressed-bytes (+ (* strip-row-offset bytes-per-row) byte-index))))
-                             (setf (pixel array i j) current-byte))))))))
+        (8
+         (let ((bytes-per-row image-width))
+           (let ((strip-length (ceiling (length decompressed-bytes) bytes-per-row)))
+             (let ((end-row (+ start-row strip-length)))
+               (loop for i from start-row below end-row
+                  for strip-row-offset from 0 
+                  do
+                    (loop for j below image-width
+                       for byte-index from 0
+                       do
+                         (let ((current-byte (aref decompressed-bytes
+                                                   (+ (* strip-row-offset bytes-per-row) byte-index))))
+                           (setf (pixel array i j) current-byte))))))))
 
-        (16 (let ((bytes-per-row (ash image-width 1)))
-             (let ((strip-length (ceiling (length decompressed-bytes) bytes-per-row)))
-               (let ((end-row (+ start-row strip-length)))
-                 (loop for i from start-row below end-row
-                    for strip-row-offset from 0 
-                    do
-                      (loop for j below image-width
-                         for byte-index from 0 by 2
-                         do
-                           (let ((current-byte1 (aref decompressed-bytes (+ (* strip-row-offset bytes-per-row) byte-index)))
-                                 (current-byte2 (aref decompressed-bytes (+ (* strip-row-offset bytes-per-row) (1+ byte-index)))))
-                             (setf (pixel array i j)
-                                   (ecase *byte-order*
-                                     (:little-endian
-                                      (+ current-byte2
-                                         (ash current-byte1 8)))
-                                     (:big-endian
-                                      (+ current-byte1
-                                         (ash current-byte2 8))))))))))))))))
+        (16
+         (let ((bytes-per-row (ash image-width 1)))
+           (let ((strip-length (ceiling (length decompressed-bytes) bytes-per-row)))
+             (let ((end-row (+ start-row strip-length)))
+               (loop for i from start-row below end-row
+                  for strip-row-offset from 0 
+                  do
+                    (loop for j below image-width
+                       for byte-index from 0 by 2
+                       do
+                         (let ((current-byte1 (aref decompressed-bytes
+                                                    (+ (* strip-row-offset bytes-per-row) byte-index)))
+                               (current-byte2 (aref decompressed-bytes
+                                                    (+ (* strip-row-offset bytes-per-row) (1+ byte-index)))))
+                           (setf (pixel array i j)
+                                 (ecase *byte-order*
+                                   (:little-endian
+                                    (+ current-byte2
+                                       (ash current-byte1 8)))
+                                   (:big-endian
+                                    (+ current-byte1
+                                       (ash current-byte2 8))))))))))))))))
 
 (defun grayscale-horizontal-difference-depredict (image max-value)
   (destructuring-bind (image-length image-width)
