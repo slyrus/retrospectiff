@@ -10,7 +10,6 @@
                              image-width
                              bits-per-sample
                              compression)
-  (declare (optimize (debug 3)))
   (file-position stream strip-offset)
   (let ((compressed-bytes (read-bytes stream strip-byte-count)))
     (let ((decompressed-bytes (apply (find-compression-decoder compression) compressed-bytes
