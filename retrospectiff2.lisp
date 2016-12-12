@@ -495,16 +495,16 @@
                        do
                          (let ((pixval (pixel image i j)))
                            (ecase *byte-order*
-                                   (:little-endian
-                                    (setf (aref image-data pixoff) (logand pixval #xff))
-                                    (incf pixoff)
-                                    (setf (aref image-data pixoff) (ash pixval -8))
-                                    (incf pixoff))
-                                   (:big-endian
-                                    (setf (aref image-data pixoff) (ash pixval -8))
-                                    (incf pixoff)
-                                    (setf (aref image-data pixoff) (logand pixval #xff))
-                                    (incf pixoff))))))))
+                             (:little-endian
+                              (setf (aref image-data pixoff) (logand pixval #xff))
+                              (incf pixoff)
+                              (setf (aref image-data pixoff) (ash pixval -8))
+                              (incf pixoff))
+                             (:big-endian
+                              (setf (aref image-data pixoff) (ash pixval -8))
+                              (incf pixoff)
+                              (setf (aref image-data pixoff) (logand pixval #xff))
+                              (incf pixoff))))))))
            tiff-image))))
 
     (16-bit-rgb-image
@@ -529,14 +529,26 @@
                          (multiple-value-bind
                                (r g b)
                              (pixel image i j)
-                           (setf (aref image-data pixoff) (ash r -8)
-                                 (aref image-data (incf pixoff)) (logand r #xff)
 
-                                 (aref image-data (incf pixoff)) (ash g -8)
-                                 (aref image-data (incf pixoff)) (logand g #xff)
+                           (ecase *byte-order*
+                             (:little-endian
+                              (setf (aref image-data pixoff) (logand r #xff)
+                                    (aref image-data (incf pixoff)) (ash r -8)
 
-                                 (aref image-data (incf pixoff)) (ash b -8)
-                                 (aref image-data (incf pixoff)) (logand b #xff)))))))
+                                    (aref image-data (incf pixoff)) (logand g #xff)
+                                    (aref image-data (incf pixoff)) (ash g -8)
+
+                                    (aref image-data (incf pixoff)) (logand b #xff)
+                                    (aref image-data (incf pixoff)) (ash b -8)))
+                             (:big-endian
+                              (setf (aref image-data pixoff) (ash r -8)
+                                    (aref image-data (incf pixoff)) (logand r #xff)
+
+                                    (aref image-data (incf pixoff)) (ash g -8)
+                                    (aref image-data (incf pixoff)) (logand g #xff)
+
+                                    (aref image-data (incf pixoff)) (ash b -8)
+                                    (aref image-data (incf pixoff)) (logand b #xff)))))))))
            tiff-image))))
 
     (16-bit-rgba-image
