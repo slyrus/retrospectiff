@@ -190,6 +190,22 @@
       (t
        (error "Unsupported grayscale bit depth: ~A" bits-per-sample)))))
 
+(defun rgb-horizontal-difference-depredict (image max-value)
+  (destructuring-bind (image-length image-width)
+      (array-dimensions image)
+    (loop for i below image-length
+       do
+         (loop for j from 1 below image-width
+            do
+              (multiple-value-bind (oldr oldg oldb)
+                  (pixel image i (1- j))
+                (multiple-value-bind (newr newg newb)
+                    (pixel image i i)
+                  (setf (pixel image i j)
+                        (values (logand (+ oldr newr) max-value)
+                                (logand (+ oldg newg) max-value)
+                                (logand (+ oldb newb) max-value)))))))))
+
 (defun read-rgb-strip (stream image-info array start-row strip-offset
                        strip-byte-count width bits-per-sample samples-per-pixel
                        bytes-per-pixel compression)
@@ -200,35 +216,41 @@
                                        (list image-info)))))
       (let ((decoded-offset 0))
         (let ((strip-length (/ (length decompressed-bytes) width bytes-per-pixel))
-              (bytes-per-sample (/ bytes-per-pixel samples-per-pixel)))
-          (loop for i from start-row below (+ start-row strip-length)
-             do
-               (let ((rowoff (* i width bytes-per-pixel)))
-                 (loop for j below width
-                    do
-                      (let ((pixoff (+ rowoff (* bytes-per-pixel j))))
-                        (loop for k below samples-per-pixel
-                           for bits across bits-per-sample
-                           do
-                             (case bits
-                               (8
-                                (setf (aref array (+ pixoff (* k bytes-per-sample)))
-                                      (aref decompressed-bytes decoded-offset))
-                                (incf decoded-offset))
-                               (16
-                                (let ((data-offset (+ pixoff (ash k 1))))
-                                  (ecase *byte-order*
-                                    (:big-endian
-                                     (setf (aref array data-offset)
-                                           (aref decompressed-bytes decoded-offset)
-                                           (aref array (1+ data-offset))
-                                           (aref decompressed-bytes (1+ decoded-offset))))
-                                    (:little-endian
-                                     (setf (aref array (1+ data-offset))
-                                           (aref decompressed-bytes decoded-offset)
-                                           (aref array data-offset)
-                                           (aref decompressed-bytes (1+ decoded-offset)))))
-                                  (incf decoded-offset 2))))))))))))))
+              (max-bits-per-sample (reduce #'max bits-per-sample)))
+          (ecase max-bits-per-sample
+            (8
+             (loop for i from start-row below (+ start-row strip-length)
+                do
+                  (loop for j below width
+                     do
+                       (setf (pixel* array i j)
+                             (loop for k below samples-per-pixel
+                                for bits across bits-per-sample
+                                collect
+                                  (prog1
+                                      (aref decompressed-bytes decoded-offset)
+                                    (incf decoded-offset)))))))
+            (16
+             (loop for i from start-row below (+ start-row strip-length)
+                do
+                  (loop for j below width
+                     do
+                       (loop for k below samples-per-pixel
+                          for bits across bits-per-sample
+                          do
+                            (setf (pixel* array i j)
+                                  (loop for k below samples-per-pixel
+                                     for bits across bits-per-sample
+                                     collect
+                                       (prog1
+                                           (ecase *byte-order*
+                                             (:big-endian
+                                              (+ (ash (aref array decoded-offset) 8)
+                                                 (aref array (1+ decoded-offset))))
+                                             (:little-endian
+                                              (+ (ash (aref array (1+ decoded-offset)) 8)
+                                                 (aref array decoded-offset))))
+                                         (incf decoded-offset 2))))))))))))))
 
 (defun read-planar-rgb-strip (stream image-info array start-row strip-offset
                               strip-byte-count width plane-bits-per-sample samples-per-pixel
@@ -241,32 +263,30 @@
            (decoded-offset 0)
            (bytes-per-sample (/ bytes-per-pixel samples-per-pixel))
            (strip-length (/ (length decompressed-bytes) width bytes-per-sample)))
-      (loop for i from start-row below (+ start-row strip-length)
-         do
-           (let ((rowoff (* i width bytes-per-pixel)))
-             (loop for j below width
-                do
-                  (let ((pixoff (+ rowoff (* bytes-per-pixel j)))
-                        (k plane))
-                    (case plane-bits-per-sample
-                      (8
-                       (setf (aref array (+ pixoff k))
-                             (aref decompressed-bytes decoded-offset))
-                       (incf decoded-offset))
-                      (16
-                       (let ((data-offset (+ pixoff (ash k 1))))
+      (ecase plane-bits-per-sample
+        (8
+         (loop for i from start-row below (+ start-row strip-length)
+            do
+              (loop for j below width
+                 do
+                   (setf (aref array i j plane)
+                         (aref decompressed-bytes decoded-offset))
+                   (incf decoded-offset))))
+
+        (16
+         (loop for i from start-row below (+ start-row strip-length)
+            do
+              (loop for j below width
+                 do
+                   (setf (aref array i j plane)
                          (ecase *byte-order*
                            (:big-endian
-                            (setf (aref array data-offset)
-                                  (aref decompressed-bytes decoded-offset)
-                                  (aref array (1+ data-offset))
-                                  (aref decompressed-bytes (1+ decoded-offset))))
+                            (+ (ash (aref decompressed-bytes decoded-offset) 8)
+                               (aref decompressed-bytes (1+ decoded-offset))))
                            (:little-endian
-                            (setf (aref array (1+ data-offset))
-                                  (aref decompressed-bytes decoded-offset)
-                                  (aref array data-offset)
-                                  (aref decompressed-bytes (1+ decoded-offset)))))
-                         (incf decoded-offset 2)))))))))))
+                            (+ (ash (aref decompressed-bytes (1+ decoded-offset)) 8)
+                               (aref decompressed-bytes decoded-offset)))))
+                   (incf decoded-offset 2))))))))
 
 (defun read-rgb-image (stream ifd)
   (let ((image-width (get-ifd-value ifd +image-width-tag+))
@@ -318,18 +338,8 @@
            
            (case predictor
              (#.+horizontal-differencing+
-              (loop for i below image-length
-                 do 
-                   (loop for j from 1 below image-width
-                      do 
-                        (let ((offset (+ (* i image-width samples-per-pixel)
-                                         (* samples-per-pixel j))))
-                          (loop for k below samples-per-pixel
-                             do (setf (aref data (+ offset k))
-                                      (logand
-                                       (+ (aref data (+ offset k))
-                                          (aref data (- (+ offset k) samples-per-pixel)))
-                                       #xff))))))))
+              (rgb-horizontal-difference-depredict data (1- (ash 1 16)))))
+
            (make-instance 'tiff-image
                           :length image-length :width image-width
                           :bits-per-sample bits-per-sample
@@ -363,19 +373,8 @@
                                                  plane))))
              
              (case predictor
-               (#.+horizontal-differencing+
-                (loop for i below image-length
-                   do 
-                     (loop for j from 1 below image-width
-                        do 
-                          (let ((offset (+ (* i image-width samples-per-pixel)
-                                           (* samples-per-pixel j))))
-                            (loop for k below samples-per-pixel
-                               do (setf (aref data (+ offset k))
-                                        (logand
-                                         (+ (aref data (+ offset k))
-                                            (aref data (- (+ offset k) samples-per-pixel)))
-                                         #xff))))))))
+               (rgb-horizontal-difference-depredict data (1- (ash 1 16))))
+
              (make-instance 'tiff-image
                             :length image-length :width image-width
                             :bits-per-sample bits-per-sample
@@ -482,7 +481,6 @@
        (read-grayscale-image stream ifd))
       (#.+photometric-interpretation-black-is-zero+
        (read-grayscale-image stream ifd))
-      #+nil
       (#.+photometric-interpretation-rgb+
        (read-rgb-image stream ifd))
       #+nil
