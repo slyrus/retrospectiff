@@ -191,8 +191,9 @@
        (error "Unsupported grayscale bit depth: ~A" bits-per-sample)))))
 
 (defun rgb-horizontal-difference-depredict (image max-value)
-  (destructuring-bind (image-length image-width)
+  (destructuring-bind (image-length image-width channels)
       (array-dimensions image)
+    (declare (ignore channels))
     (loop for i below image-length
        do
          (loop for j from 1 below image-width
@@ -338,7 +339,7 @@
            
            (case predictor
              (#.+horizontal-differencing+
-              (rgb-horizontal-difference-depredict data (1- (ash 1 16)))))
+              (rgb-horizontal-difference-depredict data (1- (ash 1 max-bits-per-sample)))))
 
            (make-instance 'tiff-image
                           :length image-length :width image-width
@@ -373,7 +374,7 @@
                                                  plane))))
              
              (case predictor
-               (rgb-horizontal-difference-depredict data (1- (ash 1 16))))
+               (rgb-horizontal-difference-depredict data (1- (ash 1 max-bits-per-sample))))
 
              (make-instance 'tiff-image
                             :length image-length :width image-width
