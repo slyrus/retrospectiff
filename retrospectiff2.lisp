@@ -82,11 +82,11 @@
                            (setf (pixel array i j)
                                  (ecase *byte-order*
                                    (:little-endian
-                                    (+ current-byte2
-                                       (ash current-byte1 8)))
+                                    (+ (ash current-byte2 8)
+                                       current-byte1))
                                    (:big-endian
-                                    (+ current-byte1
-                                       (ash current-byte2 8))))))))))))))))
+                                    (+ (ash current-byte1 8)
+                                       current-byte2)))))))))))))))
 
 (defun grayscale-horizontal-difference-depredict (image max-value)
   (destructuring-bind (image-length image-width)
