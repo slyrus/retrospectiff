@@ -384,40 +384,6 @@
           (t
            (error "Planar Configuration ~A not supported." planar-configuration)))))))
 
-(defun read-indexed-strip (stream array start-row strip-offset
-                           strip-byte-count width bits-per-sample
-                           bytes-per-pixel compression)
-  (file-position stream strip-offset)
-  (let ((compressed (read-bytes stream strip-byte-count)))
-    (let ((decoded (funcall (find-compression-decoder compression) compressed))
-	  (decoded-offset 0))
-      (let ((strip-length (/ (length decoded) width)))
-	(loop for i from start-row below (+ start-row strip-length)
-	   do
-	   (let ((rowoff (* i width bytes-per-pixel)))
-	     (loop for j below width
-		do
-		(let ((pixoff (+ rowoff (* bytes-per-pixel j))))
-		  (case bits-per-sample
-		    (8
-		     (setf (aref array pixoff)
-			   (aref decoded decoded-offset))
-		     (incf decoded-offset))
-		    (16
-		     (let ((data-offset pixoff))
-		       (ecase *byte-order*
-			 (:big-endian
-			  (setf (aref array data-offset)
-				(aref decoded decoded-offset)
-				(aref array (1+ data-offset))
-				(aref decoded (1+ decoded-offset))))
-			 (:little-endian
-			  (setf (aref array (1+ data-offset))
-				(aref decoded decoded-offset)
-				(aref array data-offset)
-				(aref decoded (1+ decoded-offset)))))
-		     (incf decoded-offset 2))))))))))))
-
 (defun read-indexed-image (stream ifd)
   (let ((image-width (get-ifd-value ifd +image-width-tag+))
         (image-length (get-ifd-value ifd +image-length-tag+))
@@ -427,7 +393,11 @@
         (strip-byte-counts (get-ifd-values ifd +strip-byte-counts-tag+))
         (compression (get-ifd-value ifd +compression-tag+))
         (predictor (get-ifd-value ifd +predictor-tag+))
+        image-info
+        (jpeg-tables (get-ifd-values ifd +jpeg-tables+))
         (color-map (get-ifd-values ifd +color-map-tag+)))
+    (when jpeg-tables
+      (setf image-info (make-instance 'jpeg-image-info :jpeg-tables jpeg-tables)))
     (let* ((k (expt 2 bits-per-sample))
            (color-index (make-array k)))
       (loop for i below k
@@ -437,39 +407,51 @@
                         (aref color-map (+ (ash k 1) i)))))
       ;; FIXME
       ;; 1. we need to support predictors for lzw encoded images.
-      (let* ((bytes-per-pixel
-              (1+ (ash (1- bits-per-sample)
-                       -3)))
-             (data (make-array (* image-width image-length bytes-per-pixel))))
-        (loop for strip-offset across strip-offsets
-           for strip-byte-count across strip-byte-counts
-           for row-offset = 0 then (+ row-offset rows-per-strip)
-           do (read-indexed-strip stream
-                                  data
-                                  row-offset
-                                  strip-offset
-                                  strip-byte-count
-                                  image-width
-                                  bits-per-sample
-                                  bytes-per-pixel
-                                  compression))
-        (case predictor
-          (#.+horizontal-differencing+
-           (loop for i below image-length
-              do 
-              (loop for j from 1 below image-width
-                 do 
-                 (let ((offset (+ (* i image-width) j)))
-                   (setf (aref data offset)
-                         (logand
-                          (+ (aref data offset)
-                             (aref data (1- offset)))
-                          #xff)))))))
-        (make-instance 'tiff-image
-                       :length image-length :width image-width
-                       :bits-per-sample bits-per-sample
-                       :data data :byte-order *byte-order*
-                       :color-map color-index)))))
+      (ecase bits-per-sample
+        (8
+         (let ((data (make-8-bit-gray-image image-length image-width)))
+           (loop for strip-offset across strip-offsets
+              for strip-byte-count across strip-byte-counts
+              for row-offset = 0 then (+ row-offset rows-per-strip)
+              do (read-grayscale-strip stream
+                                       image-info
+                                       data
+                                       row-offset
+                                       strip-offset
+                                       strip-byte-count
+                                       image-width
+                                       bits-per-sample
+                                       compression))
+           (case predictor
+             (#.+horizontal-differencing+
+              (grayscale-horizontal-difference-depredict data #xff)))
+           (make-instance 'tiff-image
+                          :length image-length :width image-width
+                          :bits-per-sample bits-per-sample
+                          :data data :byte-order *byte-order*
+                          :color-map color-index)))
+        (16
+         (let ((data (make-16-bit-gray-image image-length image-width)))
+           (loop for strip-offset across strip-offsets
+              for strip-byte-count across strip-byte-counts
+              for row-offset = 0 then (+ row-offset rows-per-strip)
+              do (read-grayscale-strip stream
+                                       image-info
+                                       data
+                                       row-offset
+                                       strip-offset
+                                       strip-byte-count
+                                       image-width
+                                       bits-per-sample
+                                       compression))
+           (case predictor
+             (#.+horizontal-differencing+
+              (grayscale-horizontal-difference-depredict data #xffff)))
+           (make-instance 'tiff-image
+                          :length image-length :width image-width
+                          :bits-per-sample bits-per-sample
+                          :data data :byte-order *byte-order*
+                          :color-map color-index)))))))
 
 (defun read-tiff-stream (stream)
   (let* ((fields (read-value 'tiff-fields stream))
@@ -484,7 +466,6 @@
        (read-grayscale-image stream ifd))
       (#.+photometric-interpretation-rgb+
        (read-rgb-image stream ifd))
-      #+nil
       (#.+photometric-interpretation-palette-color+
        (read-indexed-image stream ifd))))))
 
