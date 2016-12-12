@@ -180,15 +180,7 @@
 
          (case predictor
            (#.+horizontal-differencing+
-            (loop for i below image-length
-               do
-                 (loop for j from 1 below image-width
-                    do
-                      (setf (pixel data i j)
-                            (logand
-                             (+ (pixel data i j)
-                                (pixel data i (1- j)))
-                             #xffff))))))
+            (grayscale-horizontal-difference-depredict data #xffff)))
          
          (make-instance 'tiff-image
                         :length image-length :width image-width
