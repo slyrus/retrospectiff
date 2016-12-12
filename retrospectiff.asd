@@ -41,6 +41,8 @@
   ((:module :test
             :serial t
             :components ((:file "package")
-                         (:file "retrospectiff-test"))))
+                         (:file "retrospectiff-test")
+                         (:file "retrospectiff2-test"))))
   :perform (test-op (o c)
-                    (uiop:symbol-call :fiveam '#:run! :retrospectiff)))
+                    (uiop:symbol-call :fiveam '#:run! :retrospectiff)
+                    (uiop:symbol-call :fiveam '#:run! :retrospectiff2)))

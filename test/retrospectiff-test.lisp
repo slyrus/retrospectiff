@@ -1,5 +1,3 @@
-;;; Copyright (c) 2016 Cyrus Harmon, All rights reserved.
-;;; See COPYRIGHT file for details.
 
 (cl:in-package #:retrospectiff-test)
 
@@ -108,3 +106,4 @@
       (let ((input-img (read-tiff-file out)))
         (is (equalp (tiff-image-data img)
                     (tiff-image-data input-img)))))))
+
