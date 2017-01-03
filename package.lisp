@@ -174,4 +174,35 @@
            #:tiff-image-color-map
            #:tiff-image-min-is-white))
 
+(cl:defpackage #:retrospectiff2
+  (:use #:cl
+        #:opticl-core
+        #:retrospectiff.constants
+        #:retrospectiff.globals
+        #:retrospectiff.binary-types
+        #:retrospectiff.compression
+        #:retrospectiff.ifd
+        #:retrospectiff.image
+        #:retrospectiff.util)
+  (:nicknames #:tiff2)
+  (:shadowing-import-from #:retrospectiff.binary-types
+                          #:rational
+                          #:numerator
+                          #:denominator)
+  (:export #:read-tiff-stream
+           #:read-tiff-file
+
+           #:write-tiff-stream
+           #:write-tiff-file
+
+           #:tiff-image
+           #:tiff-image-length
+           #:tiff-image-width
+           #:tiff-image-samples-per-pixel
+           #:tiff-image-bits-per-sample
+           #:tiff-image-data
+           #:tiff-image-byte-order
+           #:tiff-image-color-map
+           #:tiff-image-min-is-white))
+
 

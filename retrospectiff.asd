@@ -10,7 +10,8 @@
                flexi-streams
                ieee-floats
                cl-jpeg
-               deflate)
+               deflate
+               opticl-core)
   :components
   ((:cl-source-file "package")
    (:cl-source-file "constants")
@@ -25,7 +26,8 @@
    (:cl-source-file "binary-types")
    (:cl-source-file "ifd")
    (:cl-source-file "tiff-image")
-   (:cl-source-file "retrospectiff"))
+   (:cl-source-file "retrospectiff")
+   (:cl-source-file "retrospectiff2"))
   :in-order-to ((test-op (test-op :retrospectiff/test))))
 
 (asdf:defsystem :retrospectiff/test
@@ -39,6 +41,8 @@
   ((:module :test
             :serial t
             :components ((:file "package")
-                         (:file "retrospectiff-test"))))
+                         (:file "retrospectiff-test")
+                         (:file "retrospectiff2-test"))))
   :perform (test-op (o c)
-                    (uiop:symbol-call :fiveam '#:run! :retrospectiff)))
+                    (uiop:symbol-call :fiveam '#:run! :retrospectiff)
+                    (uiop:symbol-call :fiveam '#:run! :retrospectiff2)))

@@ -8,3 +8,11 @@
 
 (def-suite :retrospectiff)
 
+
+(cl:defpackage :retrospectiff2-test
+  (:use #:cl #:retrospectiff2 #:fiveam))
+
+(cl:in-package #:retrospectiff2-test)
+
+(def-suite :retrospectiff2)
+

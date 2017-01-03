@@ -442,6 +442,7 @@
         (make-instance 'tiff-image
                        :length image-length :width image-width
                        :bits-per-sample bits-per-sample
+                       :samples-per-pixel 1
                        :data data :byte-order *byte-order*
                        :color-map color-index)))))
 
