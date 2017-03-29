@@ -6,13 +6,19 @@
     (declare (ignore stream))
     (error "JPEG encoding not supported yet!")))
 
+(defvar *jpeg-stream*)
+
+(defun jpeg-stream-reader ()
+  (read-byte *jpeg-stream*))
+
 (defun read-jpeg-tables (jpeg-image-info)
-  (let ((jpeg-tables-stream (flexi-streams:make-in-memory-input-stream
-                             (jpeg-tables jpeg-image-info))))
-    (let ((image (jpeg::make-descriptor)))
-      (unless (= (jpeg::read-marker jpeg-tables-stream) jpeg::+M_SOI+)
+  (let* ((*jpeg-stream* (flexi-streams:make-in-memory-input-stream
+                         (jpeg-tables jpeg-image-info))))
+    (let ((image (jpeg::make-descriptor
+                  :byte-reader #'jpeg-stream-reader)))
+      (unless (= (jpeg::read-marker image) jpeg::+M_SOI+)
         (error "Unrecognized JPEG format"))
-      (let ((marker (jpeg::interpret-markers image 0 jpeg-tables-stream)))
+      (let ((marker (jpeg::interpret-markers image 0)))
         (unless (= marker jpeg::+M_EOI+)
           (error "Unrecognized JPEG format")))
       (setf (jpeg-image jpeg-image-info) image))))
