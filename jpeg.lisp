@@ -28,8 +28,5 @@
     (read-byte jpeg-data-stream)
     (let ((jpeg-stream
            (make-concatenated-stream tables-stream jpeg-data-stream)))
-      (flet ((jpeg-stream-reader ()
-               (read-byte jpeg-stream)))
-        (let ((image-desc (jpeg:make-descriptor :byte-reader #'jpeg-stream-reader)))
-          (jpeg:decode-stream nil :descriptor image-desc :cached-source-p t))))))
+      (jpeg:decode-stream jpeg-stream))))
 
