@@ -38,11 +38,11 @@
 
 (defmacro read-and-write-image-test (test-name input-filename output-filename)
   `(test ,test-name
-    (let ((img (read-tiff-file (test-image ,input-filename))))
-      (let ((out (output-image ,output-filename)))
-        (is (equal out (write-tiff-file out img :if-exists :supersede)))
-        (let ((input-img (read-tiff-file out)))
-          (is (equalp (tiff-image-data img)
+     (let ((img (read-tiff-file (test-image ,input-filename))))
+       (let ((out (output-image ,output-filename)))
+         (is (equal out (write-tiff-file out img :if-exists :supersede)))
+         (let ((input-img (read-tiff-file out)))
+           (is (equalp (tiff-image-data img)
                       (tiff-image-data input-img))))))))
 
 (read-and-write-image-test tiff2-read-and-write-planar-tiff-rgb-file
@@ -68,7 +68,12 @@
                            "4-bit-gray-circle.tiff" "4-bit-gray-circle.tiff")
 
 (read-and-write-image-test tiff2-read-and-write-8-bit-grayscale-image
-                           "truck-gray.tiff" "truck-gray.tiff")
+                           "snow-gray.tiff" "snow-gray.tiff")
+
+;; NB this doesn't work yet!
+#+nil
+(read-and-write-image-test tiff2-read-and-write-8-bit-grayscale-image
+                           "snow-gray-alpha.tiff" "snow-gray-alpha.tiff")
 
 (read-and-write-image-test tiff2-read-and-write-16-bit-grayscale-image
                            "window.tiff" "window.tiff")

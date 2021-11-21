@@ -609,6 +609,35 @@
                          (incf pixoff)))))
            tiff-image))))
 
+    (8-bit-gray-alpha-image
+     (locally
+         (declare (type 8-bit-gray-alpha-image image))
+       (destructuring-bind (height width channels)
+           (array-dimensions image)
+         (unless (equal channels 2)
+           (error "incorrect number of chanbnels in 8-bit-gray-alpha-image"))
+         (let ((tiff-image (make-instance 'tiff:tiff-image
+                                          :width width
+                                          :length height
+                                          :bits-per-sample 8
+                                          :samples-per-pixel 2
+                                          :data (make-array (* width height 2)
+                                                            :initial-element 255))))
+           (with-accessors ((image-data tiff:tiff-image-data))
+               tiff-image
+             (loop for i below height
+                do
+                  (loop for j below width
+                     do
+                       (let ((pixoff (* 2 (+ (* i width) j))))
+                         (multiple-value-bind
+                               (gray alpha)
+                             (pixel image i j)
+                           (setf (aref image-data pixoff) gray
+                                 (aref image-data (incf pixoff)) alpha))
+                         (incf pixoff)))))
+           tiff-image))))
+
     (8-bit-rgb-image
      (locally
          (declare (type 8-bit-rgb-image image))
